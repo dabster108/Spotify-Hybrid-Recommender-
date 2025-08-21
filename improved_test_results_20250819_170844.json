@@ -1,0 +1,539 @@
+[
+  {
+    "test_name": "Travis Scott Artist Detection",
+    "request": "songs from Travis Scott",
+    "test_type": "ARTIST_DETECTION",
+    "priority": "HIGH",
+    "analysis": {
+      "song": null,
+      "artist": "Travis",
+      "genres": [],
+      "mood": null,
+      "language": null,
+      "region": null,
+      "keywords": [
+        "songs",
+        "from",
+        "travis",
+        "scott"
+      ],
+      "limit": null
+    },
+    "recommendations_count": 3,
+    "artist_test": {
+      "mentioned_artists": [
+        "travis"
+      ],
+      "found_artists": [
+        "travis scott",
+        "travis scott",
+        "travis japan"
+      ],
+      "detection_score": 10,
+      "detected_correctly": true
+    },
+    "language_test": {
+      "requested_language": null,
+      "language_score": 10,
+      "language_match": true
+    },
+    "quality_test": {
+      "scores": {
+        "relevance": 1,
+        "quality": 7,
+        "diversity": 1,
+        "appropriateness": 10,
+        "overall": 9
+      },
+      "explanation": "Another popular song by Travis Scott, this one featuring Playboi Carti. It's a great match for the user request and a high-quality song.",
+      "recommendation": "EXCELLENT",
+      "llm_response": "Here are my ratings:\n\n1. 'goosebumps' by Travis Scott (Popularity: 85)\nRELEVANCE: 10\nQUALITY: 9\nDIVERSITY: 10\nAPPROPRIATENESS: 10\nOVERALL: 9.5\nEXPLANATION: This song is a popular hit by Travis Scott, matching the user request perfectly. It's a high-quality song with a great beat and catchy melody.\nRECOMMENDATION: EXCELLENT\n\n2. 'FE!N (feat. Playboi Carti)' by Travis Scott (Popularity: 85)\nRELEVANCE: 10\nQUALITY: 9\nDIVERSITY: 10\nAPPROPRIATENESS: 10\nOVERALL: 9.5\nEXPLANATION: Another popular song by Travis Scott, this one featuring Playboi Carti. It's a great match for the user request and a high-quality song.\nRECOMMENDATION: EXCELLENT\n\n3. 'Would You Like One?' by Travis Japan (Popularity: 63)\nRELEVANCE: 0\nQUALITY: 7\nDIVERSITY: 0"
+    },
+    "final_score": 9.7,
+    "status": "PASS",
+    "timestamp": "2025-08-19T17:07:44.422353"
+  },
+  {
+    "test_name": "Ed Sheeran Artist Detection",
+    "request": "play Ed Sheeran songs",
+    "test_type": "ARTIST_DETECTION",
+    "priority": "HIGH",
+    "analysis": {
+      "song": null,
+      "artist": "Ed Sheeran",
+      "genres": [],
+      "mood": null,
+      "language": null,
+      "region": null,
+      "keywords": [
+        "play",
+        "sheeran",
+        "songs"
+      ],
+      "limit": null
+    },
+    "recommendations_count": 2,
+    "artist_test": {
+      "mentioned_artists": [
+        "ed sheeran"
+      ],
+      "found_artists": [
+        "ed sheeran",
+        "ed sheeran"
+      ],
+      "detection_score": 10,
+      "detected_correctly": true
+    },
+    "language_test": {
+      "requested_language": null,
+      "language_score": 10,
+      "language_match": true
+    },
+    "quality_test": {
+      "scores": {
+        "relevance": 10,
+        "quality": 8,
+        "diversity": 1,
+        "appropriateness": 1,
+        "overall": 4
+      },
+      "explanation": "The recommender seems to have made a mistake by suggesting non-existent songs by Ed Sheeran. This is a major issue that affects the overall quality of the recommendations.",
+      "recommendation": "POOR",
+      "llm_response": "Here's my rating:\n\nRELEVANCE: 10\nThe recommendations match the user request perfectly, as they are both Ed Sheeran songs.\n\nQUALITY: 8\nBoth songs are popular and well-known, but 'Azizam' is not a real Ed Sheeran song. 'Sapphire' is not a real song by Ed Sheeran either. It seems like the recommender made a mistake.\n\nDIVERSITY: 0\nThe recommendations are not diverse at all, as they are both non-existent Ed Sheeran songs.\n\nAPPROPRIATENESS: 0\nThe recommendations are not suitable for the request context, as they are not actual Ed Sheeran songs.\n\nOVERALL: 4.5\nThe recommendations are a failure due to the lack of relevance, quality, diversity, and appropriateness.\n\nEXPLANATION: The recommender seems to have made a mistake by suggesting non-existent songs by Ed Sheeran. This is a major issue that affects the overall quality of the recommendations.\n\nRECOMMENDATION: POOR"
+    },
+    "final_score": 8.2,
+    "status": "PASS",
+    "timestamp": "2025-08-19T17:07:47.384642"
+  },
+  {
+    "test_name": "Specific Song Request",
+    "request": "play Shape of You by Ed Sheeran",
+    "test_type": "SONG_DETECTION",
+    "priority": "HIGH",
+    "analysis": {
+      "song": "Shape of You",
+      "artist": "Shape of You by Ed Sheeran",
+      "genres": [
+        "[not specified]"
+      ],
+      "mood": "[not specified]",
+      "language": "[not specified]",
+      "region": "[not specified]",
+      "keywords": [
+        "[not specified]"
+      ],
+      "limit": null
+    },
+    "recommendations_count": 5,
+    "artist_test": {
+      "mentioned_artists": [
+        "shape of you by ed sheeran"
+      ],
+      "found_artists": [
+        "shape of you",
+        "joy corporation",
+        "paolo ferrara",
+        "paranormal attack",
+        "sharam jey"
+      ],
+      "detection_score": 10,
+      "detected_correctly": true
+    },
+    "language_test": {
+      "requested_language": null,
+      "language_score": 10,
+      "language_match": true
+    },
+    "quality_test": {
+      "scores": {
+        "relevance": 2,
+        "quality": 6,
+        "diversity": 8,
+        "appropriateness": 4,
+        "overall": 5.0
+      },
+      "explanation": "This recommendation is not very relevant to the user's request, as it's a remix of a different song. The quality is average, and the diversity is high, as it's a different genre and style. Appropriateness is low",
+      "recommendation": "EXCELLENT",
+      "llm_response": "Here are my ratings:\n\n1. 'Shape of You - Instrumental, Playback, Karaoke' by Shape Of You\nRELEVANCE: 10\nQUALITY: 8\nDIVERSITY: 1\nAPPROPRIATENESS: 10\nOVERALL: 8.5\nEXPLANATION: This recommendation is extremely relevant to the user's request, as it's the original song. The quality is good, but it's an instrumental/karaoke version, which might not be as engaging as the original. The diversity is low, as it's the same song. Appropriateness is high, as it's the exact song requested.\nRECOMMENDATION: EXCELLENT\n\n2. 'Do You Remember - Shapeless Remix' by Joy Corporation\nRELEVANCE: 2\nQUALITY: 6\nDIVERSITY: 8\nAPPROPRIATENESS: 4\nOVERALL: 5.2\nEXPLANATION: This recommendation is not very relevant to the user's request, as it's a remix of a different song. The quality is average, and the diversity is high, as it's a different genre and style. Appropriateness is low"
+    },
+    "final_score": 8.5,
+    "status": "PASS",
+    "timestamp": "2025-08-19T17:07:49.995640"
+  },
+  {
+    "test_name": "Hindi Language Detection",
+    "request": "give me hindi bollywood songs",
+    "test_type": "LANGUAGE_DETECTION",
+    "priority": "HIGH",
+    "analysis": {
+      "song": null,
+      "artist": "hindi bollywood",
+      "genres": [],
+      "mood": null,
+      "language": "hindi",
+      "region": "indian",
+      "keywords": [
+        "give",
+        "hindi",
+        "bollywood",
+        "songs"
+      ],
+      "limit": null
+    },
+    "recommendations_count": 2,
+    "artist_test": {
+      "mentioned_artists": [
+        "hindi bollywood"
+      ],
+      "found_artists": [
+        "huntr/x",
+        "saja boys"
+      ],
+      "detection_score": 0,
+      "detected_correctly": false
+    },
+    "language_test": {
+      "requested_language": "hindi",
+      "language_score": 10,
+      "language_match": true,
+      "llm_analysis": "Based on the song titles and artist names, I analyzed the language/cultural background of the songs:\n\n1. 'Golden' by HUNTR/X\n\t* Primary language/cultural origin: Hindi/Bollywood/Indian\n2. 'Your Idol' by Saja Boys\n\t* Primary language/cultural origin: Hindi/Bollywood/Indian\n\nOVERALL_MATCH: YES\nMATCH_SCORE: 10\n\nBoth songs have Hindi/Bollywood/Indian cultural and linguistic roots, which is consistent with the user's request for Hindi music."
+    },
+    "quality_test": {
+      "scores": {
+        "relevance": 5,
+        "quality": 5,
+        "diversity": 5,
+        "appropriateness": 5,
+        "overall": 4
+      },
+      "explanation": "The recommendations are not relevant to the user's request, and while they are good songs, they don't fit the context of Hindi Bollywood music.",
+      "recommendation": "FAIR",
+      "llm_response": "Here are my ratings:\n\nRECOMMENDED SONGS:\n1. 'Golden' by HUNTR/X\n2. 'Your Idol' by Saja Boys\n\nRatings:\n\n1. RELEVANCE: 2/10 - Neither song is a traditional Hindi Bollywood song, which was the user's request.\n2. QUALITY: 8/10 - Both songs are popular and well-produced, but not necessarily representative of the Bollywood genre.\n3. DIVERSITY: 6/10 - The recommendations are from different artists, but both songs are from the same genre (pop/indie).\n4. APPROPRIATENESS: 1/10 - The recommendations are not suitable for the request context, as they are not Hindi Bollywood songs.\n\nOVERALL: 4.5/10\nEXPLANATION: The recommendations are not relevant to the user's request, and while they are good songs, they don't fit the context of Hindi Bollywood music.\n\nRECOMMENDATION: FAIR"
+    },
+    "final_score": 4.2,
+    "status": "FAIL",
+    "timestamp": "2025-08-19T17:08:02.164383"
+  },
+  {
+    "test_name": "Nepali Language Detection",
+    "request": "sad nepali songs",
+    "test_type": "LANGUAGE_DETECTION",
+    "priority": "HIGH",
+    "analysis": {
+      "song": null,
+      "artist": null,
+      "genres": [],
+      "mood": "sad",
+      "language": "nepali",
+      "region": "nepali",
+      "keywords": [
+        "sad",
+        "nepali",
+        "songs"
+      ],
+      "limit": null
+    },
+    "recommendations_count": 2,
+    "artist_test": {
+      "mentioned_artists": [],
+      "found_artists": [
+        "vten",
+        "dj caat"
+      ],
+      "detection_score": 10,
+      "detected_correctly": true
+    },
+    "language_test": {
+      "requested_language": "nepali",
+      "language_score": 10,
+      "language_match": true,
+      "llm_analysis": "Based on the song titles and artists, I analyzed the language/cultural background of the songs as follows:\n\nSONG_1_LANGUAGE: 'Nepali Ho' by VTEN: Nepali/Nepalese\nSONG_2_LANGUAGE: 'NEPALI PHONK 3' by Dj Caat: Nepali/Nepalese\nOVERALL_MATCH: YES\nMATCH_SCORE: 10\n\nBoth songs have \"Nepali\" in their titles, and VTEN is a Nepali artist, indicating that the primary language/cultural origin is Nepali/Nepalese."
+    },
+    "quality_test": {
+      "scores": {
+        "relevance": 6,
+        "quality": 8,
+        "diversity": 4,
+        "appropriateness": 5,
+        "overall": 6
+      },
+      "explanation": "While the song is popular and well-known, it doesn't quite match the request for a \"sad\" Nepali song.",
+      "recommendation": "FAIR",
+      "llm_response": "Here are my ratings:\n\n**RECOMMENDATION 1: 'Nepali Ho' by VTEN**\n\nRELEVANCE: 6/10 (The song title \"Nepali Ho\" does contain the word \"Nepali\", but the song's genre and style don't necessarily scream \"sad\" to me.)\nQUALITY: 8/10 (VTEN is a popular Nepali artist, and this song has a decent number of views and likes.)\nDIVERSITY: 4/10 (This is a pop song, and while it's a good representation of Nepali pop music, it doesn't offer much variety in terms of genre or style.)\nAPPROPRIATENESS: 5/10 (The song's title and lyrics might not necessarily convey a sad tone, but it's still a Nepali song, so it's somewhat relevant to the request.)\n\nOVERALL: 6.2/10\nEXPLANATION: While the song is popular and well-known, it doesn't quite match the request for a \"sad\" Nepali song.\nRECOMMENDATION: FAIR\n\n**RECOMMENDATION 2: 'NEPALI PHONK 3' by Dj Caat"
+    },
+    "final_score": 8.8,
+    "status": "PASS",
+    "timestamp": "2025-08-19T17:08:07.612992"
+  },
+  {
+    "test_name": "Korean Language Detection",
+    "request": "korean pop music k-pop",
+    "test_type": "LANGUAGE_DETECTION",
+    "priority": "HIGH",
+    "analysis": {
+      "song": null,
+      "artist": null,
+      "genres": [],
+      "mood": null,
+      "language": "korean",
+      "region": "korean",
+      "keywords": [
+        "korean",
+        "pop",
+        "music",
+        "k-pop"
+      ],
+      "limit": null
+    },
+    "recommendations_count": 5,
+    "artist_test": {
+      "mentioned_artists": [],
+      "found_artists": [
+        "jung kook",
+        "bts",
+        "leehi",
+        "chanyeol",
+        "10cm"
+      ],
+      "detection_score": 10,
+      "detected_correctly": true
+    },
+    "language_test": {
+      "requested_language": "korean",
+      "language_score": 10,
+      "language_match": true,
+      "llm_analysis": "Here are the analyses:\n\nSONG_1_LANGUAGE: 'Still With You' by Jung Kook: Korean\nSONG_2_LANGUAGE: 'FAKE LOVE' by BTS: Korean\nSONG_3_LANGUAGE: 'ONLY' by LeeHi: Korean\nOVERALL_MATCH: YES\nMATCH_SCORE: 10\n\nAll three songs are from Korean artists and are primarily in the Korean language, with lyrics that reflect Korean culture and themes. The songs are part of the K-pop genre, which is a significant part of Korean popular music."
+    },
+    "quality_test": {
+      "scores": {
+        "relevance": 9,
+        "quality": 8,
+        "diversity": 6,
+        "appropriateness": 8,
+        "overall": 7
+      },
+      "explanation": "",
+      "recommendation": "FAIR",
+      "llm_response": "Here are my ratings:\n\nRELEVANCE: 9\nThe recommendations are all K-pop songs, which matches the user request. However, the request specifically asks for \"Korean pop music\" which implies a broader scope beyond just K-pop. So, I deduct a point for not fully capturing the request's intent.\n\nQUALITY: 8\nThe recommended songs are all popular and well-known in the K-pop scene. However, the popularity scores are not extremely high, with the top song being only 80 out of 100. This suggests that the recommendations are good but not necessarily the most iconic or influential K-pop songs.\n\nDIVERSITY: 6\nThe recommendations are all from different artists, but they are all from the same genre (K-pop). There is no representation from other genres, such as rock, hip-hop, or electronic music. This lack of diversity limits the recommendations' appeal to users who may be looking for something outside of K-pop.\n\nAPPROPRIATENESS: 8\nThe recommendations are suitable for the request context, as they are all K-pop songs. However, the request could have been interpreted more broadly to include other Korean music genres or styles.\n\nOVERALL: 7.6\nThe"
+    },
+    "final_score": 9.1,
+    "status": "PASS",
+    "timestamp": "2025-08-19T17:08:12.258133"
+  },
+  {
+    "test_name": "English vs Hindi Mix Test",
+    "request": "I want english songs not hindi",
+    "test_type": "LANGUAGE_DETECTION",
+    "priority": "MEDIUM",
+    "analysis": {
+      "song": null,
+      "artist": "english",
+      "genres": [],
+      "mood": null,
+      "language": "hindi",
+      "region": "indian",
+      "keywords": [
+        "want",
+        "english",
+        "songs",
+        "not",
+        "hindi"
+      ],
+      "limit": null
+    },
+    "recommendations_count": 2,
+    "artist_test": {
+      "mentioned_artists": [
+        "english"
+      ],
+      "found_artists": [
+        "modern english",
+        "hazel english"
+      ],
+      "detection_score": 10,
+      "detected_correctly": true
+    },
+    "language_test": {
+      "requested_language": "hindi",
+      "language_score": 0,
+      "language_match": false,
+      "llm_analysis": "Based on the song titles and lyrics, here are the analyses:\n\nSONG_1_LANGUAGE: 'I Melt with You' by Modern English\nLANGUAGE: English/Western\n\nSONG_2_LANGUAGE: 'Baby Blue' by Hazel English\nLANGUAGE: English/Western\n\nOVERALL_MATCH: NO\nMATCH_SCORE: 0\n\nThe songs 'I Melt with You' by Modern English and 'Baby Blue' by Hazel English are both English-language songs with Western cultural influences. They do not have any apparent connections to Hindi/Bollywood/Indian music."
+    },
+    "quality_test": {
+      "scores": {
+        "relevance": 10,
+        "quality": 7,
+        "diversity": 8,
+        "appropriateness": 10,
+        "overall": 8
+      },
+      "explanation": "The song is an English indie-pop track, matches the request, and is a good quality song. However, it's not as well-known as the first recommendation, and the genre is relatively niche.",
+      "recommendation": "GOOD",
+      "llm_response": "Here are my ratings:\n\n1. 'I Melt with You' by Modern English\nRELEVANCE: 10\nQUALITY: 8\nDIVERSITY: 9\nAPPROPRIATENESS: 10\nOVERALL: 9.2\nEXPLANATION: The song is an English classic, matches the request perfectly, and is a popular 80s hit. It's a great choice, but not extremely diverse in terms of genre or style.\nRECOMMENDATION: EXCELLENT\n\n2. 'Baby Blue' by Hazel English\nRELEVATION: 10\nQUALITY: 7\nDIVERSITY: 8\nAPPROPRIATENESS: 10\nOVERALL: 8.4\nEXPLANATION: The song is an English indie-pop track, matches the request, and is a good quality song. However, it's not as well-known as the first recommendation, and the genre is relatively niche.\nRECOMMENDATION: GOOD\n\nOverall, both recommendations are excellent in terms of relevance and appropriateness, but the quality and diversity of the songs differ. The first recommendation is a classic hit, while the second is a more niche indie-pop track"
+    },
+    "final_score": 6.4,
+    "status": "FAIL",
+    "timestamp": "2025-08-19T17:08:15.973949"
+  },
+  {
+    "test_name": "Genre Quality Test",
+    "request": "upbeat rock songs for workout",
+    "test_type": "QUALITY_TEST",
+    "priority": "MEDIUM",
+    "analysis": {
+      "song": null,
+      "artist": null,
+      "genres": [],
+      "mood": "upbeat",
+      "language": null,
+      "region": null,
+      "keywords": [
+        "upbeat",
+        "rock",
+        "songs",
+        "for",
+        "workout"
+      ],
+      "limit": null
+    },
+    "recommendations_count": 5,
+    "artist_test": {
+      "mentioned_artists": [],
+      "found_artists": [
+        "cake",
+        "melodality",
+        "amy macdonald",
+        "kiki",
+        "fitz and the tantrums"
+      ],
+      "detection_score": 10,
+      "detected_correctly": true
+    },
+    "language_test": {
+      "requested_language": null,
+      "language_score": 10,
+      "language_match": true
+    },
+    "quality_test": {
+      "scores": {
+        "relevance": 6,
+        "quality": 8,
+        "diversity": 5,
+        "appropriateness": 8,
+        "overall": 6
+      },
+      "explanation": "This song is a great match for the request, but it's not a well-known song. The quality is decent, but it's not a standout track. The diversity is lacking, as it's a generic indie rock song.",
+      "recommendation": "FAIR",
+      "llm_response": "Here are my ratings:\n\n1. 'Rock 'n' Roll Lifestyle' by CAKE\nRELEVANCE: 8\nQUALITY: 7\nDIVERSITY: 6\nAPPROPRIATENESS: 8\nOVERALL: 7.5\nEXPLANATION: This song is a good match for the request, but it's not extremely popular. It's a fun, upbeat rock song that could work well for a workout.\nRECOMMENDATION: GOOD\n\n2. 'Energetic Upbeat Indie Rock' by Melodality\nRELEVANCE: 9\nQUALITY: 4\nDIVERSITY: 3\nAPPROPRIATENESS: 8\nOVERALL: 6.2\nEXPLANATION: This song is a great match for the request, but it's not a well-known song. The quality is decent, but it's not a standout track. The diversity is lacking, as it's a generic indie rock song.\nRECOMMENDATION: FAIR\n\n3. 'Poison Prince' by Amy Macdonald\nRELEVANCE: 6\nQUALITY: 8\nDIVERSITY: 5\nAPPROPRIAT"
+    },
+    "final_score": 8.8,
+    "status": "PASS",
+    "timestamp": "2025-08-19T17:08:18.910990"
+  },
+  {
+    "test_name": "Mood Quality Test",
+    "request": "relaxing chill music for studying",
+    "test_type": "QUALITY_TEST",
+    "priority": "MEDIUM",
+    "analysis": {
+      "song": null,
+      "artist": null,
+      "genres": [],
+      "mood": "relaxing",
+      "language": null,
+      "region": null,
+      "keywords": [
+        "relaxing",
+        "chill",
+        "music",
+        "for",
+        "studying"
+      ],
+      "limit": null
+    },
+    "recommendations_count": 5,
+    "artist_test": {
+      "mentioned_artists": [],
+      "found_artists": [
+        "chill phil",
+        "relaxing piano moods",
+        "karan raj karki",
+        "anurag khadka",
+        "mike classic"
+      ],
+      "detection_score": 10,
+      "detected_correctly": true
+    },
+    "language_test": {
+      "requested_language": null,
+      "language_score": 10,
+      "language_match": true
+    },
+    "quality_test": {
+      "scores": {
+        "relevance": 9,
+        "quality": 8,
+        "diversity": 2,
+        "appropriateness": 9,
+        "overall": 8
+      },
+      "explanation": "This song is very relevant to the request, and its popularity suggests it's a good choice. The quality is good, and it's a traditional study music song with a soothing piano melody. The diversity is moderate since it's a single",
+      "recommendation": "GOOD",
+      "llm_response": "Here are my ratings:\n\n1. 'Relaxing Thunderstorms' by chill phil\nRELEVANCE: 9\nQUALITY: 7\nDIVERSITY: 1\nAPPROPRIATENESS: 9\nOVERALL: 7.2\nEXPLANATION: This song is very relevant to the request, and its popularity suggests it's a good choice. However, it's not a traditional \"study music\" song, but rather a soundscape. The quality is good, but it's not a song with a traditional melody or harmony. The diversity is low since it's a single song. Appropriateness is high since it's relaxing and calming.\nRECOMMENDATION: GOOD\n\n2. 'Healing Study Music' by Relaxing Piano Moods\nRELEVANCE: 9\nQUALITY: 8\nDIVERSITY: 2\nAPPROPRIATENESS: 9\nOVERALL: 8.4\nEXPLANATION: This song is very relevant to the request, and its popularity suggests it's a good choice. The quality is good, and it's a traditional study music song with a soothing piano melody. The diversity is moderate since it's a single"
+    },
+    "final_score": 9.4,
+    "status": "PASS",
+    "timestamp": "2025-08-19T17:08:29.982671"
+  },
+  {
+    "test_name": "Complex Request Quality",
+    "request": "give me 3 romantic hindi songs from 2020s",
+    "test_type": "QUALITY_TEST",
+    "priority": "HIGH",
+    "analysis": {
+      "song": null,
+      "artist": null,
+      "genres": [],
+      "mood": "romantic",
+      "language": "hindi",
+      "region": "indian",
+      "keywords": [
+        "romantic hindi songs",
+        "2020s"
+      ],
+      "limit": 3
+    },
+    "recommendations_count": 3,
+    "artist_test": {
+      "mentioned_artists": [],
+      "found_artists": [
+        "tanishk bagchi",
+        "aditya rikhari",
+        "mithoon"
+      ],
+      "detection_score": 10,
+      "detected_correctly": true
+    },
+    "language_test": {
+      "requested_language": "hindi",
+      "language_score": 10,
+      "language_match": true,
+      "llm_analysis": "Here are the analyses:\n\nSONG_1_LANGUAGE: Hindi/Bollywood/Indian\nSONG_2_LANGUAGE: Hindi/Bollywood/Indian\nSONG_3_LANGUAGE: Hindi/Bollywood/Indian\nOVERALL_MATCH: YES\nMATCH_SCORE: 10\n\nAll three songs are from the Indian film industry (Bollywood) and are primarily in the Hindi language. The lyrics, music, and cultural references are all characteristic of Indian popular music."
+    },
+    "quality_test": {
+      "scores": {
+        "relevance": 9,
+        "quality": 8,
+        "diversity": 6,
+        "appropriateness": 8,
+        "overall": 7
+      },
+      "explanation": "The recommendations are a good starting point, but",
+      "recommendation": "FAIR",
+      "llm_response": "Here are my ratings:\n\nRELEVANCE: 9\nThe recommendations match the request for romantic Hindi songs from the 2020s, with two songs from 2021 and one from 2020.\n\nQUALITY: 8\nAll three songs are popular and well-known, with \"Sahiba\" being the most popular among the three. However, \"Tum Hi Ho\" is not from the 2020s, but rather from 2013.\n\nDIVERSITY: 6\nThe recommendations are all romantic songs, but they are from different genres (pop and filmi) and have different moods. However, they are all slow and sentimental, which may not provide the best variety for the user.\n\nAPPROPRIATENESS: 8\nThe recommendations are suitable for the request context, as they are romantic Hindi songs from the 2020s. However, the inclusion of \"Tum Hi Ho\" may not be entirely relevant.\n\nOVERALL: 7.8\nThe recommendations are good, but not excellent. While they match the request and are popular, they lack diversity and have a slight mismatch with \"Tum Hi Ho\".\n\nEXPLANATION: The recommendations are a good starting point, but"
+    },
+    "final_score": 9.1,
+    "status": "PASS",
+    "timestamp": "2025-08-19T17:08:44.251882"
+  }
+]

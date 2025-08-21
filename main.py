@@ -7,7 +7,7 @@ A hybrid recommendation system using Groq LLM and Spotify API
 import os
 import sys
 from dotenv import load_dotenv
-from model import hybrid_recommend
+from model_fixed import hybrid_recommend
 from utils import format_recommendations
 
 def main():
@@ -27,7 +27,7 @@ def main():
         sys.exit(1)
     
     # Test API connections
-    from spotify_api import get_spotify_client
+    from spotify_api_fixed import get_spotify_client
     sp = get_spotify_client()
     if not sp:
         print("❌ Failed to initialize Spotify client. Please check your credentials and try again.")
@@ -92,7 +92,7 @@ def main():
             print("\n🔍 Analyzing your request and finding recommendations...")
             
             # Get recommendations using hybrid approach
-            recommendations = hybrid_recommend(user_input, limit=5)
+            recommendations = hybrid_recommend(user_input)  # Let the function detect song count
             
             # Format and display results
             if recommendations:

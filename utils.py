@@ -22,52 +22,45 @@ def extract_keywords(text: str, stopwords: list = None) -> list:
     keywords = [w for w in words if w not in stopwords]
     return keywords
 
-def calculate_hybrid_score(song, llm_analysis, content_weight=0.6, popularity_weight=0.4):
+def calculate_hybrid_score(song, llm_analysis, content_weight=0.7, popularity_weight=0.3, regional_boost=0.5):
     """
-    Calculate hybrid recommendation score combining relevance and popularity
+    Calculate hybrid recommendation score, now with regional boosting.
     
     Args:
-        song: Dictionary containing song info including 'popularity'
-        llm_analysis: Dictionary with LLM extracted info (song, artist, keywords, etc.)
-        content_weight: Weight for content-based relevance (default 0.6)
-        popularity_weight: Weight for popularity score (default 0.4)
+        song: Dictionary containing song info including 'popularity' and 'is_regional'
+        llm_analysis: Dictionary with LLM extracted info
+        content_weight: Weight for content-based relevance
+        popularity_weight: Weight for popularity score
+        regional_boost: Additional score for regional tracks
     
     Returns:
         Float: Combined hybrid score (0.0 to 1.0)
     """
-    # Base relevance score
     relevance_score = 0.5
     
-    # Boost for exact song match
-    if (llm_analysis.get('song') and 
-        song.get('name', '').lower() in llm_analysis['song'].lower()):
-        relevance_score += 0.3
-    
-    # Boost for exact artist match  
-    if (llm_analysis.get('artist') and 
-        song.get('artist', '').lower() in llm_analysis['artist'].lower()):
-        relevance_score += 0.3
-    
-    # Boost for keyword matches in song name or artist
+    # Keyword matching
     if llm_analysis.get('keywords'):
         song_text = f"{song.get('name', '')} {song.get('artist', '')}".lower()
-        keyword_matches = sum(1 for keyword in llm_analysis['keywords'] 
-                            if keyword.lower() in song_text)
+        keyword_matches = sum(1 for keyword in llm_analysis['keywords'] if keyword.lower() in song_text)
         if keyword_matches > 0:
-            relevance_score += min(0.2, keyword_matches * 0.1)
+            relevance_score += min(0.4, keyword_matches * 0.15) # Increased boost for keywords
     
-    # Normalize popularity (0-100) to 0-1 scale
+    # Popularity score (normalized)
     popularity_score = song.get('popularity', 0) / 100.0
     
-    # Calculate weighted hybrid score
+    # Hybrid score calculation
     hybrid_score = (content_weight * relevance_score) + (popularity_weight * popularity_score)
     
-    return min(1.0, hybrid_score)  # Cap at 1.0
+    # Apply regional boost
+    if song.get('is_regional'):
+        hybrid_score += regional_boost
+        
+    return min(1.0, hybrid_score)
 
 def format_recommendations(recs: list) -> str:
     """
     Convert list of song dictionaries into a readable string with clickable links
-    Enhanced to show hybrid scores if available
+    Enhanced to show hybrid scores and featured artist indicators
     """
     if not recs:
         return "No recommendations found."
@@ -79,8 +72,12 @@ def format_recommendations(recs: list) -> str:
         url = song.get('spotify_url', '')
         popularity = song.get('popularity', 0)
         hybrid_score = song.get('hybrid_score')
+        is_featured = song.get('is_featured', False)
         
-        formatted += f"{idx}. **{name}** by {artist}"
+        # Add feature indicator
+        feature_indicator = " (Featured)" if is_featured else ""
+        
+        formatted += f"{idx}. **{name}** by {artist}{feature_indicator}"
         
         # Show scores for debugging/transparency
         if popularity > 0:
