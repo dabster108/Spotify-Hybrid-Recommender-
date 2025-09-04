@@ -161,7 +161,18 @@ def parse_song_references(query: str) -> List[Dict[str, str]]:
         "bad guy": "Billie Eilish",
         "uptown funk": "Mark Ronson",
         "despacito": "Luis Fonsi",
-        "dance monkey": "Tones and I"
+        "dance monkey": "Tones and I",
+        # Nepali songs
+        "sajni": "The Edge Band",
+        "jhol": "Nepathya",
+        "resham": "Nepathya",
+        "jati maya": "Swoopna Suman",
+        "budi": "Sabin Rai",
+        "sano prakash": "Bipul Chettri",
+        "syndicate": "Bartika Eam Rai",
+        "nira": "Bartika Eam Rai",
+        "parelima": "Rohit John Chettri",
+        "tadhapari": "Deepak Bajracharya"
     }
     
     for track, artist in special_case_tracks.items():
@@ -209,13 +220,30 @@ def extract_language_preference(query: str) -> Optional[str]:
     language_patterns = {
         'english': ['english', 'in english'],
         'hindi': ['hindi', 'in hindi', 'bollywood'],
-        'nepali': ['nepali', 'in nepali'],
+        'nepali': ['nepali', 'in nepali', 'sajni', 'jhol', 'resham', 'bipul chettri', 'nepathya', 
+                  'bartika eam rai', 'sabin rai', 'edge band', 'swoopna suman', 'rohit john chettri',
+                  'deepak bajracharya', 'albatross', 'kutumba', 'the axe', 'neetesh jung kunwar',
+                  'parelima', 'nira', 'sano prakash', 'sindicate', 'jati maya', 'budi', 'tadhapari'],
         'korean': ['korean', 'in korean', 'k-pop', 'kpop'],
         'spanish': ['spanish', 'in spanish', 'latin', 'latino'],
         'japanese': ['japanese', 'in japanese', 'j-pop', 'jpop']
     }
     
     query_lower = query.lower()
+    
+    # First check for specific song titles that indicate language
+    specific_song_langs = {
+        'nepali': ['sajni', 'jhol', 'resham', 'parelima', 'nira', 'budi', 'jati maya', 'syndicate'],
+        'hindi': ['dhoom machale', 'chaiyya chaiyya', 'sheila ki jawani', 'kajra re', 'tum hi ho'],
+        'korean': ['gangnam style', 'dynamite', 'butter'],
+        'spanish': ['despacito', 'bailando', 'gasolina']
+    }
+    
+    for lang, songs in specific_song_langs.items():
+        if any(song in query_lower for song in songs):
+            return lang
+    
+    # Check for language patterns
     for lang, patterns in language_patterns.items():
         if any(pattern in query_lower for pattern in patterns):
             return lang
