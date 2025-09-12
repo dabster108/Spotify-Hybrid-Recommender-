@@ -14,10 +14,10 @@ import math
 from performance import time_function
 from progress import ProgressIndicator, with_progress
 from cache import RecommendationCache
-
+from helo import query_analyzer
 # Import the advanced query analyzer
 try:
-    from query_analyzer import AdvancedMusicQueryAnalyzer
+    from helo.query_analyzer import AdvancedMusicQueryAnalyzer
     ANALYZER_AVAILABLE = True
 except ImportError:
     ANALYZER_AVAILABLE = False
