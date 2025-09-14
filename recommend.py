@@ -82,7 +82,7 @@ class HybridRecommendationSystem:
         # API Credentials (embedded)
         self.spotify_client_id = "951794b964c043e8866d6ec2289456f9"
         self.spotify_client_secret = "4682f24701654df58c6acde01e7a821e"
-        self.groq_api_key = "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"
+        self.groq_api_key = "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"
         
         # API endpoints
         self.spotify_token = None
