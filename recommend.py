@@ -1797,10 +1797,39 @@ Only return valid JSON, no explanations."""
         if existing_songs:
             print(f"Found {len(existing_songs)} existing songs in input")
         
-        # Step 1: LLM Query Interpretation with Artist/Song Detection
+        # Step 1: Lightweight rule-based song/artist extraction (helps when LLM or Spotify fail)
         print(" Step 1: Interpreting query with LLM for artist detection...")
+        # Basic regex-based extraction for patterns like: 'songs similar to Shape of You by Ed Sheeran'
+        rule_song = None
+        rule_artist = None
+        rule_count = None
+        try:
+            song_match = re.search(r"(?:songs?|tracks?)\s*(?:similar to|like|like this|such as)\s+['\"]?([^'\"\n]+?)['\"]?(?:\s+by\s+([A-Za-z &]+))?(?:\s|$)", query, re.IGNORECASE)
+            if song_match:
+                rule_song = song_match.group(1).strip()
+                if song_match.group(2):
+                    rule_artist = song_match.group(2).strip()
+
+            count_match = re.search(r'(\d+)\s+(?:songs?|tracks?)', query, re.IGNORECASE)
+            if count_match:
+                rule_count = int(count_match.group(1))
+        except Exception:
+            rule_song = rule_artist = rule_count = None
+
         preferences = self.interpret_query_with_llm(query)
+
+        # If LLM didn't detect a song but our simple rule did, prefer the rule (more deterministic)
+        if not preferences.is_song_specified and rule_song:
+            print(f"Rule-based detection: treating '{rule_song}' as the seed song (artist: {rule_artist})")
+            preferences.is_song_specified = True
+            preferences.song_name = rule_song
+            preferences.song_artist = rule_artist
+            if rule_count:
+                preferences.requested_count = rule_count
         
+        # Ensure we have a Spotify token before doing any song/artist lookups
+        if not self.get_spotify_token():
+            print("⚠️ Unable to authenticate with Spotify. Will fallback to LLM/genre-based recommendations when songs aren't found.")
         # Import song similarity module
         from song_similarity import find_specific_song, get_recommendations_by_song
         
@@ -1812,9 +1841,14 @@ Only return valid JSON, no explanations."""
             print(f"SONG-SIMILARITY STRATEGY: Finding songs similar to '{preferences.song_name}'")
             
             # Step 2: Find the seed track
-            seed_track_data = find_specific_song(self.spotify_token, 
-                                                preferences.song_name, 
-                                                preferences.song_artist)
+            # Attempt to find the specified song on Spotify (only if we have a token)
+            seed_track_data = None
+            if self.spotify_token:
+                seed_track_data = find_specific_song(self.spotify_token, 
+                                                    preferences.song_name, 
+                                                    preferences.song_artist)
+            else:
+                print("⚠️ Skipping direct Spotify lookup because no valid Spotify token is available.")
             
             if not seed_track_data:
                 print(f"⚠️ Song '{preferences.song_name}' not found in Spotify. Analyzing song characteristics for similar recommendations...")
@@ -1851,6 +1885,8 @@ Only return valid JSON, no explanations."""
                     
                     # Track that this is an analyzed unknown song for better formatting
                     analyzed_song = original_song_name
+                    # Make seed_characteristics available for later scoring logic
+                    seed_characteristics = song_characteristics or {}
                     
                     # Continue with the normal flow using updated preferences
                     print("📊 Updated preferences based on song analysis. Proceeding with genre-based search...")
@@ -1868,73 +1904,211 @@ Only return valid JSON, no explanations."""
                 
                 # Step 3: Get the seed track's audio features
                 seed_features = self.get_audio_features([seed_track_id]).get(seed_track_id, {})
-                
+
+                # If no audio features are available, fall back to genre/language analysis
                 if not seed_features:
-                    return f"❌ Could not retrieve audio features for '{seed_track_name}'."
-                
-                # Set count of recommendations
+                    print(f"⚠️ Audio features not available for '{seed_track_name}'. Falling back to genre/language analysis...")
+
+                    # Analyze the seed track via LLM/rules to infer genres/moods
+                    song_characteristics = self.analyze_unknown_song_characteristics(seed_track_name, seed_track_artist)
+                    # Keep a consistent variable name for downstream code
+                    seed_characteristics = song_characteristics or {}
+
+                    # Update preferences from analysis
+                    if song_characteristics:
+                        preferences.genres = song_characteristics.get('genres', preferences.genres or ['pop'])
+                        preferences.moods = song_characteristics.get('moods', preferences.moods or ['neutral'])
+                        preferences.energy_level = song_characteristics.get('energy_level', preferences.energy_level or 0.5)
+                        preferences.valence_level = song_characteristics.get('valence_level', preferences.valence_level or 0.5)
+                        preferences.tempo_preference = song_characteristics.get('tempo_preference', preferences.tempo_preference or 'medium')
+                        preferences.language_preference = song_characteristics.get('language') or preferences.language_preference
+                        preferences.activity_context = song_characteristics.get('activity_context') or preferences.activity_context
+
+                    # Exclude the original song from results
+                    if existing_songs is None:
+                        existing_songs = []
+                    if seed_track_name and seed_track_name.lower() not in [s.lower() for s in existing_songs]:
+                        existing_songs.append(seed_track_name)
+
+                    # Proceed with a genre/language-based search to find similar tracks
+                    final_count = requested_count or 3
+                    print(f"Getting {final_count} genre-based recommendations similar to '{seed_track_name}'...")
+                    candidate_tracks = self.search_spotify_tracks(preferences, limit=80)
+                    if not candidate_tracks:
+                        return f"❌ Could not find tracks related to '{seed_track_name}' using genre-based fallback."
+
+                    # Enhance and rank candidates
+                    enhanced_tracks = self.enhance_tracks_with_features(candidate_tracks)
+                    ranking_results = self.ranking_recommendations(enhanced_tracks, preferences, top_k=final_count*4)
+                    sequential_results = []
+                    embedding_results = []
+
+                    # Merge and evaluate
+                    preferences.is_artist_specified = False
+                    final_recommendations = self.hybrid_merge(
+                        sequential_results,
+                        ranking_results,
+                        embedding_results,
+                        preferences,
+                        existing_songs,
+                        None,
+                        final_count
+                    )
+
+                    # Prefer seed-genre / language matches by boosting their score (soft filter)
+                    seed_genres_norm = [g.lower() for g in (seed_characteristics.get('genres') if seed_characteristics else []) or []]
+                    seed_lang_norm = (seed_characteristics.get('language').lower() if seed_characteristics and seed_characteristics.get('language') else None)
+
+                    def score_track(t):
+                        # determine primary genre and language for the candidate
+                        t_gen = (self._determine_primary_genre(t, preferences.genres) or '').lower()
+                        t_lang = (self._determine_track_language(t, None) or '').lower()
+                        # genre score: fraction of seed genres that match candidate
+                        genre_score = 0.0
+                        if seed_genres_norm:
+                            matches = sum(1 for s in seed_genres_norm if s in t_gen or t_gen in s)
+                            genre_score = matches / max(1, len(seed_genres_norm))
+                        # language score: binary match
+                        lang_score = 1.0 if (seed_lang_norm and seed_lang_norm in t_lang) else 0.0
+                        # base_score: if track already has a ranking/score attribute, use it; else 0
+                        base_score = 0.0
+                        if isinstance(t, dict):
+                            base_score = float(t.get('score', 0.0))
+                        # weights: genre stronger than language
+                        return base_score + 1.5 * genre_score + 1.0 * lang_score
+
+                    # compute scores and re-rank
+                    scored = sorted(final_recommendations, key=score_track, reverse=True)
+                    final_cnt = final_count if final_count else 3
+                    top_scored = scored[:final_cnt]
+                    # if scoring didn't cause reordering (all zeros) keep original ordering
+                    if any(score_track(t) > 0 for t in top_scored):
+                        final_recommendations = top_scored
+
+                    print("Step 6: Evaluating recommendation quality...")
+                    metrics = self.evaluate_recommendations(final_recommendations)
+                    metrics['seed_track'] = f"{seed_track_name} by {seed_track_artist}"
+
+                    return self.format_enhanced_results(
+                        final_recommendations,
+                        metrics,
+                        preferences,
+                        existing_songs,
+                        None,
+                        final_count,
+                        analyzed_song,
+                        seed_track={'name': seed_track_name, 'artist': seed_track_artist}
+                    )
+
+                # If we have features, continue with the normal seed-based recommendation flow
                 final_count = requested_count or 5  # Default to 5 songs for similarity searches
                 
-                # Step 4: Get recommendations based on the seed track
                 print(f"Getting {final_count} tracks similar to '{seed_track_name}'...")
-                
-                # Get similar songs but exclude the original artist to ensure diversity
+                # Get similar songs from Spotify using the Recommendations API
                 similar_tracks_data = get_recommendations_by_song(
-                    self.spotify_token, 
-                    seed_track_id, 
+                    self.spotify_token,
+                    seed_track_id,
                     seed_features,
-                    exclude_artists=[seed_track_artist], 
-                    limit=50  # Get more candidates to ensure diversity
+                    exclude_artists=[seed_track_artist],
+                    limit=50
                 )
-                
+
                 if not similar_tracks_data:
                     return f"❌ Could not find tracks similar to '{seed_track_name}'."
-                
-                # Convert to our Track format and enhance with audio features
+
+                # Convert and enhance
                 similar_tracks = [self._convert_spotify_track(track) for track in similar_tracks_data]
                 enhanced_tracks = self.enhance_tracks_with_features(similar_tracks)
-                
-                # Use ranking to get the most relevant tracks
-                ranking_results = self.ranking_recommendations(enhanced_tracks, preferences, top_k=final_count*2)
+
+                # Try to infer seed genres/language to filter candidates
+                seed_characteristics = self.analyze_unknown_song_characteristics(seed_track_name, seed_track_artist)
+                seed_genres = [g.lower() for g in (seed_characteristics.get('genres') if seed_characteristics else []) or []]
+                seed_lang = (seed_characteristics.get('language') if seed_characteristics else None)
+
+                # Rank candidates
+                ranking_results = self.ranking_recommendations(enhanced_tracks, preferences, top_k=final_count*6)
+
+                # Filter ranked candidates to prefer matches with seed genre/language
+                filtered_ranking = []
+                if seed_genres or seed_lang:
+                    for track, score in ranking_results:
+                        track_gen = self._determine_primary_genre(track, preferences.genres).lower()
+                        track_lang = self._determine_track_language(track, None).lower()
+                        track_text = f"{track.name} {' '.join(track.artists)} {track.album}".lower()
+
+                        match_genre = any(seed in track_gen or track_gen in seed for seed in seed_genres)
+                        match_lang = seed_lang and seed_lang.lower() in track_lang
+
+                        # Also check if seed genre words appear in track text
+                        if not match_genre and seed_genres:
+                            for seed in seed_genres:
+                                if seed in track_text:
+                                    match_genre = True
+                                    break
+
+                        if match_genre or match_lang:
+                            filtered_ranking.append((track, score + 0.05))  # small boost
+
+                # If filtering produced too few results, fallback to original ranking
+                if not filtered_ranking:
+                    filtered_ranking = ranking_results[:final_count*4]
+
                 sequential_results = []
                 embedding_results = []
-                
-                print(f"Found {len(ranking_results)} ranked candidates similar to '{seed_track_name}'")
-                
-                # Step 5: Merge with diversity enforcement
+
+                print(f"Found {len(filtered_ranking)} ranked candidates similar to '{seed_track_name}' (filtered by seed genres/language)")
+
+                # Merge with diversity enforcement
                 print("🔄 Step 5: Merging with diversity enforcement...")
-                
-                # Override the is_artist_specified flag to ensure we get diverse results
                 preferences.is_artist_specified = False
-                
-                # Merge recommendations with diversity
                 final_recommendations = self.hybrid_merge(
-                    sequential_results, 
-                    ranking_results, 
+                    sequential_results,
+                    filtered_ranking,
                     embedding_results,
-                    preferences, 
-                    existing_songs, 
-                    None,  # No specific artist
+                    preferences,
+                    existing_songs,
+                    None,
                     final_count
                 )
-                
+
                 # Step 6: Evaluation
+                # Prefer seed-genre / language matches by boosting their score (soft filter)
+                seed_genres_norm = [g.lower() for g in (seed_characteristics.get('genres') if seed_characteristics else []) or []]
+                seed_lang_norm = (seed_characteristics.get('language').lower() if seed_characteristics and seed_characteristics.get('language') else None)
+
+                def score_track(t):
+                    t_gen = (self._determine_primary_genre(t, preferences.genres) or '').lower()
+                    t_lang = (self._determine_track_language(t, None) or '').lower()
+                    genre_score = 0.0
+                    if seed_genres_norm:
+                        matches = sum(1 for s in seed_genres_norm if s in t_gen or t_gen in s)
+                        genre_score = matches / max(1, len(seed_genres_norm))
+                    lang_score = 1.0 if (seed_lang_norm and seed_lang_norm in t_lang) else 0.0
+                    base_score = 0.0
+                    if isinstance(t, dict):
+                        base_score = float(t.get('score', 0.0))
+                    return base_score + 1.5 * genre_score + 1.0 * lang_score
+
+                scored = sorted(final_recommendations, key=score_track, reverse=True)
+                final_cnt = final_count if final_count else 3
+                top_scored = scored[:final_cnt]
+                if any(score_track(t) > 0 for t in top_scored):
+                    final_recommendations = top_scored
+
                 print("Step 6: Evaluating recommendation quality...")
                 metrics = self.evaluate_recommendations(final_recommendations)
-                
-                # Include seed track info in metrics
                 metrics['seed_track'] = f"{seed_track_name} by {seed_track_artist}"
-                
+
                 # Step 7: Format Results
                 return self.format_enhanced_results(
-                    final_recommendations, 
-                    metrics, 
-                    preferences, 
-                    existing_songs, 
-                    None,  # No specific artist
+                    final_recommendations,
+                    metrics,
+                    preferences,
+                    existing_songs,
+                    None,
                     final_count,
-                    analyzed_song,  # Pass analyzed song info
-                    seed_track={'name': seed_track_name, 'artist': seed_track_artist}  # Pass seed track info
+                    analyzed_song,
+                    seed_track={'name': seed_track_name, 'artist': seed_track_artist}
                 )
         
         # Handle artist-specific request if no song was specified
