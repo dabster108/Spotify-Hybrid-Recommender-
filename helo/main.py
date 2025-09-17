@@ -1200,6 +1200,16 @@ Only return valid JSON, no explanations."""
                 if any(indicator in track_text for indicator in non_english_indicators):
                     continue
             
+            # STRICT HINDI LANGUAGE FILTERING (keyword-based, no artist blacklist)
+            if not specific_artist and preferences.language_preference and preferences.language_preference.lower() == 'hindi':
+                track_text = f"{track.name} {' '.join(track.artists)} {track.album}".lower()
+                hindi_indicators = ['hindi', 'bollywood', 'hindustani']
+                if not any(indicator in track_text for indicator in hindi_indicators):
+                    continue
+                nepali_markers = ['nepali', 'nepal']
+                if any(marker in track_text for marker in nepali_markers):
+                    continue
+            
             filtered_tracks.append((track_id, score))
         
         # Sort by combined score
@@ -1759,7 +1769,7 @@ Only return valid JSON, no explanations."""
         language_patterns = {
             'Korean': ['korean', 'kpop', 'k-pop', 'bts', 'blackpink', 'twice', 'red velvet', 'exo'],
             'Hindi': ['bollywood', 'hindi', 'arijit singh', 'shreya ghoshal', 'lata mangeshkar'],
-            'Nepali': ['nepali', 'narayan gopal', 'aruna lama', 'bipul chettri', 'himalayan'],
+            'Nepali': ['nepali', 'narayan gopal', 'aruna lama', 'bipul chettri', 'himalayan', 'sushant kc'],
             'Spanish': ['spanish', 'latino', 'reggaeton', 'latin'],
             'Japanese': ['japanese', 'jpop', 'j-pop', 'anime', 'utada hikaru'],
             'Chinese': ['chinese', 'mandarin', 'cpop', 'c-pop', 'jay chou'],

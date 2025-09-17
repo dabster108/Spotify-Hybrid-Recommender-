@@ -2,7 +2,7 @@ import os
 import json
 import re
 import random
-import requests
+import requests 
 import base64
 import numpy as np
 import time
@@ -1555,6 +1555,20 @@ Only return valid JSON, no explanations."""
                 if any(indicator in track_text for indicator in non_english_indicators):
                     continue
             
+            # STRICT HINDI LANGUAGE FILTERING (keyword-based, no artist name blacklists)
+            if not specific_artist and preferences.language_preference and preferences.language_preference.lower() == 'hindi':
+                track_text = f"{track.name} {' '.join(track.artists)} {track.album}".lower()
+                
+                # Require clear Hindi indicators
+                hindi_indicators = ['hindi', 'bollywood', 'hindustani']
+                if not any(indicator in track_text for indicator in hindi_indicators):
+                    continue
+                
+                # Exclude clear Nepali markers
+                nepali_markers = ['nepali', 'nepal']
+                if any(marker in track_text for marker in nepali_markers):
+                    continue
+            
             filtered_tracks.append((track_id, score))
         
         # Sort by combined score
@@ -2547,7 +2561,7 @@ Only return valid JSON, no explanations."""
         # 2) Check explicit language/artist indicators in metadata
         track_text = f"{track.name} {' '.join(track.artists)} {track.album}".lower()
         explicit_map = {
-            'nepali': ['nepali', 'nepal', 'nepaltha', 'narayan gopal', 'bipul chettri', 'nepathya', 'sugam pokhrel', 'bartika'],
+            'nepali': ['nepali', 'nepal', 'nepaltha', 'narayan gopal', 'bipul chettri', 'nepathya', 'sugam pokhrel', 'bartika', 'sushant kc'],
             'hindi': ['hindi', 'bollywood', 'arijit singh', 'lata mangeshkar', 'kishore kumar', 'shreya ghoshal', 'pritam'],
             'korean': ['k-pop', 'kpop', 'korean', 'bts', 'blackpink', 'iu', 'twice'],
             'japanese': ['j-pop', 'jpop', 'utada hikaru', 'one ok rock', 'anime'],
