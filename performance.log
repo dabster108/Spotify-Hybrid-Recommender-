@@ -255,3 +255,11 @@
 2025-09-17 21:45:12,479 - performance - INFO - search_spotify_tracks took 9.06 seconds
 2025-09-17 21:45:12,712 - performance - INFO - get_audio_features took 0.23 seconds
 2025-09-17 21:45:12,721 - performance - INFO - get_hybrid_recommendations took 10.50 seconds
+2025-09-17 21:54:05,865 - performance - INFO - interpret_query_with_llm took 2.08 seconds
+2025-09-17 21:54:18,818 - performance - INFO - search_spotify_tracks took 12.38 seconds
+2025-09-17 21:54:19,074 - performance - INFO - get_audio_features took 0.26 seconds
+2025-09-17 21:54:19,077 - performance - INFO - get_hybrid_recommendations took 15.29 seconds
+2025-09-17 21:54:36,123 - performance - INFO - interpret_query_with_llm took 0.85 seconds
+2025-09-17 21:54:45,229 - performance - INFO - search_spotify_tracks took 9.11 seconds
+2025-09-17 21:54:45,464 - performance - INFO - get_audio_features took 0.23 seconds
+2025-09-17 21:54:45,468 - performance - INFO - get_hybrid_recommendations took 10.19 seconds
