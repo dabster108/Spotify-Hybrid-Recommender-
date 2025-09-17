@@ -103,3 +103,4 @@ if __name__ == "__main__":
         map_k = average_precision_score(y_true, y_scores)
 
         print(f"{artist_name:25s} {genre:10s} {precision:<12.3f} {recall:<10.3f} {ndcg:<10.3f} {map_k:<10.3f}")
+

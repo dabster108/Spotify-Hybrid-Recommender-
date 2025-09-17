@@ -2421,50 +2421,61 @@ Only return valid JSON, no explanations."""
                 result += f"   **New Discovery**: Recommending {rec_count} songs\n"
         result += "\n"
         
-        # Structured recommendations with enhanced metadata
+        # Strict filtering for Hindi/Bollywood requests
+        strict_hindi = False
+        if preferences.language_preference and preferences.language_preference.strip().lower() == 'hindi':
+            strict_hindi = True
+        if preferences.genres and any(g.lower() == 'bollywood' for g in preferences.genres):
+            strict_hindi = True
+
+        filtered_tracks = []
+        for track in tracks:
+            track_language = self._determine_track_language(track, preferences.language_preference).strip().lower()
+            primary_genre = self._determine_primary_genre(track, preferences.genres).strip().lower()
+            if strict_hindi:
+                # Only allow tracks where language is exactly 'hindi' (case-insensitive)
+                if track_language == 'hindi' or primary_genre == 'bollywood':
+                    filtered_tracks.append(track)
+            else:
+                filtered_tracks.append(track)
+
         if seed_track:
             result += f"**Songs Similar to '{seed_track['name']}' by {seed_track['artist']}:**\n\n"
         elif specific_artist:
             result += f"**Songs by/featuring {specific_artist}:**\n\n"
         else:
             result += "**Structured Recommendations:**\n\n"
-        
-        for i, track in enumerate(tracks, 1):
+
+        # Produce structured recommendations in the user's requested format.
+        # Use improved track language detection and fall back to 'Unknown' when ambiguous.
+        for i, track in enumerate(filtered_tracks, 1):
             artists_str = ", ".join(track.artists)
-            
-            # Determine language from track characteristics
-            track_language = self._determine_track_language(track, preferences.language_preference)
-            
-            # Determine primary genre
+            # Use improved language detection helper (prefers explicit metadata)
+            track_language = self._determine_track_language_improved(track, preferences.language_preference)
             primary_genre = self._determine_primary_genre(track, preferences.genres)
-            
-            # Highlight collaborations for specific artist requests
             collaboration_indicator = ""
-            if specific_artist:
-                if len(track.artists) > 1:
-                    collaboration_indicator = " (Collab)"  # Collaboration indicator
-            
-            # Structured output format
-            result += f"**{i}. {track.name}{collaboration_indicator}**\n"
-            result += f"   **Artist**: {artists_str}\n"
-            result += f"   **Genre**: {primary_genre}\n"
-            result += f"   **Language**: {track_language}\n"
-            result += f"   **Album**: {track.album}\n"
-            
-            # Popularity visualization
+            if specific_artist and len(track.artists) > 1:
+                collaboration_indicator = " (Collab)"
+
+            # Format exactly as requested by the user
+            result += f"**{i}. {track.name}**\n"
+            result += f"Artist: {artists_str}\n"
+            result += f"Genre: {primary_genre}\n"
+            result += f"Language: {track_language}\n"
+            result += f"Album: {track.album}\n"
+            # Popularity as numeric and small bar
             popularity_bar = "●" * (track.popularity // 20) + "○" * (5 - track.popularity // 20)
-            result += f"   **Popularity**: {popularity_bar} ({track.popularity}/100)\n"
-            
-            # Duration
+            result += f"Popularity: {popularity_bar} ({track.popularity}/100)\n"
             duration_min = track.duration_ms // 60000
             duration_sec = (track.duration_ms // 1000) % 60
-            result += f"   **Duration**: {duration_min}:{duration_sec:02d}\n"
-            
-            # Links
-            result += f"   **Spotify**: {track.external_url}\n"
+            result += f"Duration: {duration_min}:{duration_sec:02d}\n"
+            result += f"Spotify: {track.external_url}\n"
             if track.preview_url:
-                result += f"   **Preview**: {track.preview_url}\n"
+                result += f"Preview: {track.preview_url}\n"
             result += "\n"
+        # If strict Hindi/Bollywood and no tracks left, show a message
+        if strict_hindi and not filtered_tracks:
+            result += "❌ No Hindi/Bollywood tracks found matching your request. Please try a different query.\n"
         
         # Enhanced Quality Metrics
         result += "📈 **Quality Metrics:**\n"
@@ -2515,6 +2526,74 @@ Only return valid JSON, no explanations."""
         result += "\n\n*Powered by Enhanced Cultural AI with Artist Diversity & Language Filtering*"
         
         return result
+
+    def _determine_track_language_improved(self, track: Track, preference_lang: Optional[str] = None) -> str:
+        """Improved language detection for a track.
+
+        Strategy:
+        - If a user preference language is provided, prefer that only when we can verify via metadata.
+        - Check explicit Spotify metadata: track name, artist names, album name for clear indicators.
+        - Use Unicode script heuristics as a fallback (e.g., Devanagari, Hangul, Kana) to detect Nepali/Hindi/Korean/Japanese.
+        - If no strong signal, return 'Unknown'. Never guess based solely on genre/album names.
+        """
+        # 1) If preference is provided and matches explicit artist/track tokens, return it
+        if preference_lang:
+            pref = preference_lang.strip().lower()
+            track_text = f"{track.name} {' '.join(track.artists)} {track.album}".lower()
+            # Only accept the preference if it appears in metadata (avoid blind assumption)
+            if pref in track_text:
+                return pref.title()
+
+        # 2) Check explicit language/artist indicators in metadata
+        track_text = f"{track.name} {' '.join(track.artists)} {track.album}".lower()
+        explicit_map = {
+            'nepali': ['nepali', 'nepal', 'nepaltha', 'narayan gopal', 'bipul chettri', 'nepathya', 'sugam pokhrel', 'bartika'],
+            'hindi': ['hindi', 'bollywood', 'arijit singh', 'lata mangeshkar', 'kishore kumar', 'shreya ghoshal', 'pritam'],
+            'korean': ['k-pop', 'kpop', 'korean', 'bts', 'blackpink', 'iu', 'twice'],
+            'japanese': ['j-pop', 'jpop', 'utada hikaru', 'one ok rock', 'anime'],
+            'spanish': ['spanish', 'latino', 'reggaeton', 'manu chao', 'gipsy kings'],
+            'chinese': ['mandarin', 'c-pop', 'jay chou', 'faye wong'],
+            'arabic': ['arabic', 'um kulthum', 'fairuz'],
+            'french': ['french', 'chanson', 'stromae'],
+            'portuguese': ['bossa nova', 'samba', 'brazilian', 'portuguese']
+        }
+
+        for lang, indicators in explicit_map.items():
+            for token in indicators:
+                if token in track_text:
+                    return lang.title()
+
+        # 3) Unicode script heuristics on track/artist names
+        combined = f"{track.name} {' '.join(track.artists)} {track.album}"
+        # Check for Devanagari (used by Hindi and Nepali)
+        if re.search(r'[\u0900-\u097F]', combined):
+            # If Nepali indicators present, prefer Nepali; otherwise, return 'Hindi' if uncertain
+            if any(tok in track_text for tok in ['nepali', 'nepal', 'nepathya', 'bipul']):
+                return 'Nepali'
+            # We cannot reliably distinguish Devanagari language without metadata: return 'Unknown'
+            return 'Unknown'
+
+        # Hangul for Korean
+        if re.search(r'[\uAC00-\uD7AF]', combined):
+            return 'Korean'
+
+        # Hiragana/Katakana for Japanese
+        if re.search(r'[\u3040-\u30FF]', combined):
+            return 'Japanese'
+
+        # CJK Unified Ideographs for Chinese
+        if re.search(r'[\u4E00-\u9FFF]', combined):
+            return 'Chinese'
+
+        # Latin script doesn't guarantee English; avoid guessing. If explicit english indicators exist, return English
+        if re.search(r'[A-Za-z]', combined):
+            # Look for strong English indicators like 'feat.', 'ft.', or common English stopwords combined with artist names
+            english_indicators = [' feat', ' ft.', 'feat.', 'remix', 'live', 'edition']
+            if any(ind in combined.lower() for ind in english_indicators):
+                return 'English'
+
+        # 4) Unable to determine confidently
+        return 'Unknown'
 
     def _determine_track_language(self, track: Track, preference_lang: str = None) -> str:
         """Determine track language based on artist and track information."""
