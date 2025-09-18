@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-Enhanced Music Recommendation Evaluation System
-Uses Mistral API for comprehensive analysis of recommendations with proper rate limiting
-"""
 
 import requests
 import json
