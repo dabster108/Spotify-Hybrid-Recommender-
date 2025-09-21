@@ -11,13 +11,21 @@ from urllib.parse import urlencode
 from dataclasses import dataclass, asdict
 from collections import defaultdict, deque
 import math
+from pathlib import Path
 from performance import time_function
 from progress import ProgressIndicator, with_progress
 from cache import RecommendationCache
-from Recommended_Appraoach import query_analyzer
+# Prefer relative import when running inside the package; fall back to absolute import when executed as top-level script
+try:
+    # When run as part of the package (python -m Recommend_System.recommend)
+    from . import query_analyzer
+except Exception:
+    # When executed directly (python Recommend_System/recommend.py) the relative import fails,
+    # fall back to importing the module by filename
+    import query_analyzer
 # Import the advanced query analyzer
 try:
-    from Recommended_Appraoach.query_analyzer import AdvancedMusicQueryAnalyzer
+    from query_analyzer import AdvancedMusicQueryAnalyzer
     ANALYZER_AVAILABLE = True
 except ImportError:
     ANALYZER_AVAILABLE = False
@@ -79,10 +87,26 @@ class ListeningHistory:
 class HybridRecommendationSystem:
     def __init__(self):
         """Initialize the hybrid recommendation system."""
-        # API Credentials (embedded)
-        self.spotify_client_id = "951794b964c043e8866d6ec2289456f9"
-        self.spotify_client_secret = "4682f24701654df58c6acde01e7a821e"
-        self.groq_api_key = "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"
+        # API Credentials (loaded from environment; use a .envv file in project root)
+        # Try to load a parent .envv file (one level above this package) so secrets aren't embedded
+        try:
+            # prefer package-relative import when used as package
+            from .utils import load_env
+        except Exception:
+            # fallback when running as script
+            try:
+                from utils import load_env
+            except Exception:
+                load_env = None
+
+        if 'load_env' in locals() and load_env:
+            # load .envv sitting in workspace/project root (one level up)
+            dotenv_path = str(Path(__file__).resolve().parents[1] / ".envv")
+            load_env(dotenv_path)
+
+        self.spotify_client_id = os.getenv("SPOTIFY_CLIENT_ID", "")
+        self.spotify_client_secret = os.getenv("SPOTIFY_CLIENT_SECRET", "")
+        self.groq_api_key = os.getenv("GROQ_API_KEY", "")
         
         # API endpoints
         self.spotify_token = None
@@ -1844,8 +1868,11 @@ Only return valid JSON, no explanations."""
         # Ensure we have a Spotify token before doing any song/artist lookups
         if not self.get_spotify_token():
             print("⚠️ Unable to authenticate with Spotify. Will fallback to LLM/genre-based recommendations when songs aren't found.")
-        # Import song similarity module
-        from Recommended_Appraoach.song_similarity import find_specific_song, get_recommendations_by_song
+        # Import song similarity module (use relative import inside package, fallback to top-level module)
+        try:
+            from .song_similarity import find_specific_song, get_recommendations_by_song
+        except Exception:
+            from song_similarity import find_specific_song, get_recommendations_by_song
         
         # Check for specific song request first (highest priority)
         if preferences.is_song_specified and preferences.song_name:
@@ -3060,8 +3087,11 @@ Relevance: 95% (Strong match to your preferences)"""
         else:
             # Normal case - try to use the improved similarity matching module
             try:
-                # Try to import the similarity_matching module from the helo package
-                from helo.similarity_matching import process_query
+                # Try to import the similarity_matching module from the Recommend_System package
+                try:
+                    from .similarity_matching import process_query
+                except Exception:
+                    from similarity_matching import process_query
                 clean_query, song_references, specific_artist, requested_count = process_query(query)
                 existing_songs = song_references
             except ImportError as e:

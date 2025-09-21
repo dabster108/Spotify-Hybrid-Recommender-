@@ -1,0 +1,9 @@
+# Local environment secrets for the Spotify Hybrid Recommender
+# Do NOT commit this file. Add it to .gitignore if not already ignored.
+
+# Spotify API credentials
+SPOTIFY_CLIENT_ID=951794b964c043e8866d6ec2289456f9
+SPOTIFY_CLIENT_SECRET=4682f24701654df58c6acde01e7a821e
+
+# Groq API key (LLM)
+GROQ_API_KEY=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
