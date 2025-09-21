@@ -1,4 +1,3 @@
-
 import requests
 import json
 import time
@@ -8,7 +7,7 @@ from dataclasses import dataclass
 from recommend import HybridRecommendationSystem
 
 # --- CONFIGURE YOUR MISTRAL API KEY AND ENDPOINT HERE ---
-MISTRAL_API_KEY = "JmiqFZXuIM4vyC40iGPeqg355yfQdl6A"
+MISTRAL_API_KEY = "sJxV6ms9t7216WIiQSRINHLSNtsckw9u"
 MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions"
 
 @dataclass
@@ -45,7 +44,7 @@ class MistralEvaluator:
     def __init__(self, api_key: str = MISTRAL_API_KEY, api_url: str = MISTRAL_API_URL):
         self.api_key = api_key
         self.api_url = api_url
-        self.rate_limit_delay = 2  # seconds between requests
+        self.rate_limit_delay = 5  # Increased delay to 5 seconds between requests to avoid rate limits
         
     def _make_mistral_request(self, prompt: str, max_retries: int = 3) -> Optional[str]:
         """Make a request to Mistral API with rate limiting and retries"""
@@ -63,6 +62,9 @@ class MistralEvaluator:
         
         for attempt in range(max_retries):
             try:
+                # Always wait before making a request to respect rate limits
+                time.sleep(self.rate_limit_delay)
+                
                 response = requests.post(self.api_url, headers=headers, json=payload, timeout=30)
                 
                 if response.status_code == 429:
@@ -76,6 +78,12 @@ class MistralEvaluator:
                 
             except requests.exceptions.RequestException as e:
                 print(f"❌ Request error (attempt {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(self.rate_limit_delay * (attempt + 1))
+                else:
+                    return None
+            except json.JSONDecodeError as e:
+                print(f"❌ JSON decode error (attempt {attempt + 1}): {e}")
                 if attempt < max_retries - 1:
                     time.sleep(self.rate_limit_delay * (attempt + 1))
                 else:
@@ -110,6 +118,8 @@ class MistralEvaluator:
             "language_consistency": 0.9
         }}
         
+        Ensure all fields are strings, not null. If unknown, use "unknown".
+        
         Recommendations:
         {recommendations_text}
         """
@@ -124,7 +134,13 @@ class MistralEvaluator:
             # Extract JSON from response
             json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
             if json_match:
-                return json.loads(json_match.group())
+                data = json.loads(json_match.group())
+                # Ensure recommendations have string values
+                for rec in data.get("recommendations", []):
+                    for key in ["song", "artist", "genre", "mood", "language"]:
+                        if rec.get(key) is None:
+                            rec[key] = "unknown"
+                return data
         except Exception as e:
             print(f"❌ JSON parsing error: {e}")
             # Try to extract basic info even if JSON parsing fails
@@ -148,7 +164,8 @@ class MistralEvaluator:
                             "song": song_match.group(1).strip(),
                             "artist": artist_match.group(1).strip(),
                             "genre": "unknown",
-                            "mood": "unknown"
+                            "mood": "unknown",
+                            "language": "unknown"
                         })
             
             return {
@@ -301,7 +318,7 @@ class EnhancedMusicEvaluator:
         if not recommendations:
             return 0.0
             
-        artists = [rec.get("artist", "").strip().lower() for rec in recommendations if rec.get("artist")]
+        artists = [str(rec.get("artist", "") or "").strip().lower() for rec in recommendations if rec.get("artist") is not None]
         if not artists:
             return 0.0
             
@@ -318,7 +335,7 @@ class EnhancedMusicEvaluator:
         expected_genre_lower = expected_genre.lower()
         
         for rec in recommendations:
-            genre = rec.get("genre", "").lower()
+            genre = str(rec.get("genre", "") or "").lower()
             # For Bollywood genre, also accept "pop" as a match since Bollywood songs are often categorized as pop
             if expected_genre_lower == "bollywood" and genre == "pop":
                 matches += 1
@@ -334,7 +351,7 @@ class EnhancedMusicEvaluator:
         expected = expected_artist.strip().lower()
         matches = 0
         for rec in recommendations:
-            artist_str = (rec.get("artist") or "").lower()
+            artist_str = str(rec.get("artist") or "").lower()
             if expected in artist_str:
                 matches += 1
         return matches / len(recommendations)
@@ -356,7 +373,7 @@ class EnhancedMusicEvaluator:
         }
         
         for rec in recommendations:
-            mood = rec.get("mood", "").lower()
+            mood = str(rec.get("mood", "") or "").lower()
             # Check direct match
             if expected_mood_lower in mood or any(word in mood for word in expected_mood_lower.split()):
                 matches += 1
@@ -377,7 +394,7 @@ class EnhancedMusicEvaluator:
         expected_lang_lower = expected_language.lower()
         
         for rec in recommendations:
-            language = rec.get("language", "").lower()
+            language = str(rec.get("language", "") or "").lower()
             if expected_lang_lower in language or any(word in language for word in expected_lang_lower.split("/")):
                 matches += 1
                 
