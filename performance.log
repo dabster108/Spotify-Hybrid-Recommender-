@@ -1,4 +1,0 @@
-2025-09-21 17:10:08,795 - performance - INFO - interpret_query_with_llm took 0.48 seconds
-2025-09-21 17:10:18,296 - performance - INFO - search_spotify_tracks took 9.27 seconds
-2025-09-21 17:10:18,537 - performance - INFO - get_audio_features took 0.24 seconds
-2025-09-21 17:10:18,542 - performance - INFO - get_hybrid_recommendations took 10.23 seconds
