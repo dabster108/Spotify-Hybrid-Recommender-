@@ -2,13 +2,68 @@ import requests
 import json
 import time
 import re
+import os
 from typing import List, Dict, Any, Tuple, Optional
 from dataclasses import dataclass
-from recommend import HybridRecommendationSystem
 
-# --- CONFIGURE YOUR MISTRAL API KEY AND ENDPOINT HERE ---
-MISTRAL_API_KEY = "sJxV6ms9t7216WIiQSRINHLSNtsckw9u"
+# Import configuration to load environment variables
+try:
+    from .config import config
+    # Use environment variables through config
+    MISTRAL_API_KEY = config.mistral_api_key
+except ImportError:
+    # Fallback: load environment variables directly
+    try:
+        from .utils import load_env
+    except ImportError:
+        try:
+            from utils import load_env
+        except ImportError:
+            # Manual environment loading as last resort
+            def load_env(path=None):
+                from pathlib import Path
+                env_path = Path(path) if path else Path(__file__).parent.parent / ".env"
+                if env_path.exists():
+                    for line in env_path.read_text().splitlines():
+                        line = line.strip()
+                        if line and not line.startswith('#') and '=' in line:
+                            key, value = line.split('=', 1)
+                            key = key.strip()
+                            value = value.strip().strip('"').strip("'")
+                            if key not in os.environ:
+                                os.environ[key] = value
+    
+    # Load environment variables
+    if 'load_env' in locals():
+        from pathlib import Path
+        dotenv_path = str(Path(__file__).resolve().parents[1] / ".env")
+        load_env(dotenv_path)
+    
+    MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
+
+# Import the recommendation system - try multiple approaches
+try:
+    from .recommend import HybridRecommendationSystem
+except ImportError:
+    try:
+        from recommend import HybridRecommendationSystem
+    except ImportError:
+        # Fallback to model if recommend doesn't work
+        try:
+            from .model import HybridRecommendationSystem
+        except ImportError:
+            from model import HybridRecommendationSystem
+
 MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions"
+
+# Validate API key
+if not MISTRAL_API_KEY:
+    print("⚠️  Warning: MISTRAL_API_KEY not found in environment variables.")
+    print("💡 Please add MISTRAL_API_KEY to your .env file")
+elif len(MISTRAL_API_KEY) < 10:
+    print("⚠️  Warning: MISTRAL_API_KEY appears to be too short.")
+else:
+    print(f"✅ Mistral API key loaded: {MISTRAL_API_KEY[:10]}...")
 
 @dataclass
 class TestCase:
@@ -256,60 +311,138 @@ class EnhancedMusicEvaluator:
     def _create_test_cases(self) -> List[TestCase]:
         """Create comprehensive test cases covering different scenarios"""
         return [
+            # Cultural/Language Tests (Enhanced)
             TestCase(
                 id=1,
-                name="Punjabi Pop Music",
-                query="Suggest me some energetic Punjabi pop songs for a party",
-                expected_genre="punjabi pop",
-                expected_mood="energetic",
-                expected_language="punjabi",
-                min_artist_diversity=0.4,
+                name="Nepali Folk Music",
+                query="Play some beautiful Nepali folk songs",
+                expected_genre="nepali folk",
+                expected_mood="peaceful",
+                expected_language="nepali",
+                min_artist_diversity=0.5,
                 min_genre_match=0.8,
-                description="Test Punjabi pop music with high energy and party mood"
+                description="Test Nepali folk music authenticity and cultural accuracy"
             ),
             TestCase(
                 id=2,
-                name="Bollywood Romance",
-                query="I want romantic Bollywood songs for a date night",
+                name="Bollywood Romance Premium",
+                query="I want the best romantic Bollywood songs by top artists",
                 expected_genre="bollywood",
                 expected_mood="romantic",
                 expected_language="hindi",
-                min_artist_diversity=0.3,
-                min_genre_match=0.7,
-                description="Test Bollywood romantic songs for date night"
+                min_artist_diversity=0.4,
+                min_genre_match=0.8,
+                description="Test high-quality Bollywood romantic songs"
             ),
             TestCase(
                 id=3,
                 name="Specific Artist - Arijit Singh",
-                query="Give me 5 songs by Arijit Singh",
+                query="Give me 5 emotional songs by Arijit Singh",
                 expected_genre="bollywood",
                 expected_artist="arijit singh",
-                expected_mood="melodious",
+                expected_mood="emotional",
                 expected_language="hindi",
                 min_artist_diversity=0.1,
-                min_genre_match=0.5,
-                description="Test recommendations similar to specific artist"
+                min_genre_match=0.6,
+                description="Test specific artist recommendations with mood specification"
             ),
             TestCase(
                 id=4,
-                name="Hindi Rock Music",
-                query="I need some Hindi rock songs for workout",
-                expected_genre="hindi rock",
+                name="K-Pop Energy",
+                query="Suggest upbeat K-pop songs for dancing",
+                expected_genre="k-pop",
                 expected_mood="energetic",
-                expected_language="hindi",
-                min_artist_diversity=0.5,
-                min_genre_match=0.6,
-                description="Test Hindi rock music for workout"
+                expected_language="korean",
+                min_artist_diversity=0.6,
+                min_genre_match=0.8,
+                description="Test K-pop cultural accuracy and energy matching"
             ),
             TestCase(
                 id=5,
-                name="Devotional Music",
-                query="Recommend some peaceful devotional songs",
+                name="Devotional Spiritual",
+                query="Recommend peaceful bhajan and spiritual songs",
                 expected_genre="devotional",
                 expected_mood="peaceful",
+                expected_language="hindi",
                 min_artist_diversity=0.4,
                 min_genre_match=0.8,
-                description="Test devotional music"
+                description="Test religious/spiritual music accuracy"
+            ),
+            # Activity-Context Tests (New)
+            TestCase(
+                id=6,
+                name="Workout Motivation",
+                query="High energy workout songs to get pumped up at the gym",
+                expected_genre="pop",
+                expected_mood="energetic",
+                min_artist_diversity=0.5,
+                min_genre_match=0.6,
+                description="Test workout context with energy requirements"
+            ),
+            TestCase(
+                id=7,
+                name="Study Focus Music",
+                query="Calm instrumental music for studying and concentration",
+                expected_genre="instrumental",
+                expected_mood="calm",
+                min_artist_diversity=0.3,
+                min_genre_match=0.7,
+                description="Test study context with focus requirements"
+            ),
+            # Mood-Specific Tests (Enhanced)
+            TestCase(
+                id=8,
+                name="Sad Emotional Songs",
+                query="I'm feeling sad, play some emotional heartbreak songs",
+                expected_genre="pop",
+                expected_mood="sad",
+                min_artist_diversity=0.4,
+                min_genre_match=0.5,
+                description="Test emotional mood matching accuracy"
+            ),
+            TestCase(
+                id=9,
+                name="Party Dance Hits",
+                query="Best party songs for dancing all night",
+                expected_genre="dance",
+                expected_mood="party",
+                min_artist_diversity=0.6,
+                min_genre_match=0.7,
+                description="Test party context with dance requirements"
+            ),
+            # Multi-Cultural Test (New)
+            TestCase(
+                id=10,
+                name="Spanish Latin Music",
+                query="Play some romantic Spanish songs and Latin music",
+                expected_genre="latin",
+                expected_mood="romantic",
+                expected_language="spanish",
+                min_artist_diversity=0.5,
+                min_genre_match=0.7,
+                description="Test Spanish/Latin music cultural authenticity"
+            ),
+            # Quality Control Test (New)
+            TestCase(
+                id=11,
+                name="High Quality Pop",
+                query="Recommend top quality popular songs by famous artists",
+                expected_genre="pop",
+                expected_mood="upbeat",
+                min_artist_diversity=0.6,
+                min_genre_match=0.6,
+                description="Test recommendation quality and artist reputation"
+            ),
+            # Complex Query Test (New)
+            TestCase(
+                id=12,
+                name="Morning Coffee Chill",
+                query="Relaxing coffee shop music for a peaceful morning",
+                expected_genre="indie",
+                expected_mood="relaxing",
+                min_artist_diversity=0.5,
+                min_genre_match=0.6,
+                description="Test complex contextual query understanding"
             )
         ]
     
@@ -327,21 +460,47 @@ class EnhancedMusicEvaluator:
         return unique_artists / total_artists
     
     def _calculate_genre_match(self, recommendations: List[Dict[str, Any]], expected_genre: str) -> float:
-        """Calculate genre match score"""
+        """Calculate genre match score with enhanced accuracy"""
         if not recommendations or not expected_genre:
             return 0.0
             
         matches = 0
         expected_genre_lower = expected_genre.lower()
         
+        # Enhanced genre matching with synonyms and variations
+        genre_synonyms = {
+            'bollywood': ['hindi', 'indian', 'playback', 'filmi'],
+            'k-pop': ['kpop', 'korean pop', 'korean'],
+            'j-pop': ['jpop', 'japanese pop', 'japanese'],
+            'nepali': ['nepali folk', 'himalayan', 'nepalese'],
+            'devotional': ['spiritual', 'bhajan', 'kirtan', 'religious'],
+            'latin': ['spanish', 'hispanic', 'latino'],
+            'dance': ['party', 'club', 'electronic dance'],
+            'instrumental': ['ambient', 'background', 'focus'],
+            'indie': ['independent', 'alternative', 'indie pop']
+        }
+        
         for rec in recommendations:
             genre = str(rec.get("genre", "") or "").lower()
-            # For Bollywood genre, also accept "pop" as a match since Bollywood songs are often categorized as pop
-            if expected_genre_lower == "bollywood" and genre == "pop":
+            
+            # Direct match
+            if expected_genre_lower in genre or genre in expected_genre_lower:
                 matches += 1
-            elif expected_genre_lower in genre or any(word in genre for word in expected_genre_lower.split()):
-                matches += 1
+                continue
                 
+            # Synonym matching
+            if expected_genre_lower in genre_synonyms:
+                synonyms = genre_synonyms[expected_genre_lower]
+                if any(syn in genre for syn in synonyms):
+                    matches += 1
+                    continue
+                    
+            # Reverse synonym matching
+            for genre_key, synonyms in genre_synonyms.items():
+                if genre_key in genre and expected_genre_lower in synonyms:
+                    matches += 1
+                    break
+                    
         return matches / len(recommendations)
     
     def _calculate_artist_match(self, recommendations: List[Dict[str, Any]], expected_artist: Optional[str]) -> float:
@@ -357,51 +516,101 @@ class EnhancedMusicEvaluator:
         return matches / len(recommendations)
 
     def _calculate_mood_match(self, recommendations: List[Dict[str, Any]], expected_mood: str) -> float:
-        """Calculate mood match score"""
+        """Calculate mood match score with enhanced emotional intelligence"""
         if not recommendations or not expected_mood:
             return 1.0  # No mood specified, consider as match
             
         matches = 0
         expected_mood_lower = expected_mood.lower()
         
-        # Define mood synonyms for better matching
+        # Enhanced mood synonyms with emotional intelligence
         mood_synonyms = {
-            "melodious": ["romantic", "emotional", "soulful", "heartfelt", "yearning", "melancholic"],
-            "energetic": ["upbeat", "playful", "energetic"],
-            "romantic": ["romantic", "emotional", "heartfelt", "yearning", "melodious"],
-            "peaceful": ["peaceful", "calm", "serene"]
+            "melodious": ["romantic", "emotional", "soulful", "heartfelt", "yearning", "melancholic", "beautiful", "tender"],
+            "energetic": ["upbeat", "playful", "energetic", "high-energy", "powerful", "dynamic", "vibrant", "lively"],
+            "romantic": ["romantic", "emotional", "heartfelt", "yearning", "melodious", "love", "intimate", "passionate"],
+            "peaceful": ["peaceful", "calm", "serene", "tranquil", "soothing", "relaxing", "zen", "meditative"],
+            "sad": ["sad", "melancholic", "emotional", "heartbreak", "sorrowful", "melancholy", "depressing", "tragic"],
+            "happy": ["happy", "joyful", "cheerful", "uplifting", "positive", "bright", "optimistic", "celebratory"],
+            "party": ["party", "dance", "club", "festive", "celebration", "fun", "upbeat", "energetic"],
+            "emotional": ["emotional", "soulful", "touching", "moving", "heartfelt", "passionate", "intense", "deep"],
+            "calm": ["calm", "peaceful", "relaxing", "soothing", "chill", "mellow", "gentle", "soft"],
+            "motivational": ["motivational", "inspiring", "uplifting", "powerful", "encouraging", "determined", "strong"]
         }
         
         for rec in recommendations:
             mood = str(rec.get("mood", "") or "").lower()
-            # Check direct match
-            if expected_mood_lower in mood or any(word in mood for word in expected_mood_lower.split()):
+            
+            # Direct match
+            if expected_mood_lower in mood:
                 matches += 1
-            # Check synonyms
-            elif expected_mood_lower in mood_synonyms:
+                continue
+                
+            # Synonym matching
+            if expected_mood_lower in mood_synonyms:
                 synonyms = mood_synonyms[expected_mood_lower]
                 if any(syn in mood for syn in synonyms):
                     matches += 1
+                    continue
+                    
+            # Reverse synonym matching
+            for mood_key, synonyms in mood_synonyms.items():
+                if mood_key in mood and expected_mood_lower in synonyms:
+                    matches += 1
+                    break
                 
         return matches / len(recommendations)
     
     def _calculate_language_match(self, recommendations: List[Dict[str, Any]], expected_language: str) -> float:
-        """Calculate language match score"""
+        """Calculate language match score with cultural awareness"""
         if not recommendations or not expected_language:
             return 1.0  # No language specified, consider as match
             
         matches = 0
         expected_lang_lower = expected_language.lower()
         
+        # Enhanced language and cultural mapping
+        language_variants = {
+            'hindi': ['hindi', 'hindustani', 'bollywood', 'indian'],
+            'nepali': ['nepali', 'nepalese', 'himalayan'],
+            'korean': ['korean', 'k-pop', 'kpop'],
+            'japanese': ['japanese', 'j-pop', 'jpop'],
+            'spanish': ['spanish', 'latino', 'latin', 'hispanic'],
+            'punjabi': ['punjabi', 'bhangra'],
+            'chinese': ['chinese', 'mandarin', 'cantonese', 'c-pop'],
+            'arabic': ['arabic', 'arab', 'middle eastern'],
+            'english': ['english', 'american', 'british'],
+            'french': ['french', 'francophone'],
+            'portuguese': ['portuguese', 'brazilian'],
+            'german': ['german', 'deutsch'],
+            'italian': ['italian'],
+            'russian': ['russian']
+        }
+        
         for rec in recommendations:
             language = str(rec.get("language", "") or "").lower()
-            if expected_lang_lower in language or any(word in language for word in expected_lang_lower.split("/")):
+            
+            # Direct match
+            if expected_lang_lower in language:
                 matches += 1
+                continue
+                
+            # Variant matching
+            if expected_lang_lower in language_variants:
+                variants = language_variants[expected_lang_lower]
+                if any(variant in language for variant in variants):
+                    matches += 1
+                    continue
+                    
+            # Reverse variant matching
+            for lang_key, variants in language_variants.items():
+                if lang_key in language and expected_lang_lower in variants:
+                    matches += 1
+                    break
                 
         return matches / len(recommendations)
     
     def evaluate_single_case(self, test_case: TestCase) -> EvaluationResult:
-        """Evaluate a single test case with comprehensive analysis"""
+        """Evaluate a single test case with comprehensive analysis and enhanced accuracy scoring"""
         print(f"\n{'='*60}")
         print(f"🧪 TEST CASE {test_case.id}: {test_case.name}")
         print(f"📝 Query: {test_case.query}")
@@ -436,49 +645,70 @@ class EnhancedMusicEvaluator:
             # Extract recommendations list
             recommendations = mistral_info.get("recommendations", [])
             
-            # Calculate scores
+            # Calculate enhanced accuracy scores
             genre_match_score = self._calculate_genre_match(recommendations, test_case.expected_genre)
             artist_diversity_score = self._calculate_artist_diversity(recommendations)
             mood_match_score = self._calculate_mood_match(recommendations, test_case.expected_mood)
             language_match_score = self._calculate_language_match(recommendations, test_case.expected_language)
             
-            # Calculate overall quality score
-            # For artist-specific cases, give more weight to artist match
+            # Enhanced overall quality calculation with weighted components
             if test_case.expected_artist:
+                # Artist-specific test: prioritize artist match
                 artist_match_score = self._calculate_artist_match(recommendations, test_case.expected_artist)
                 overall_quality_score = (
-                    artist_match_score * 0.5 +
-                    genre_match_score * 0.2 +
+                    artist_match_score * 0.6 +  # Higher weight for artist match
+                    genre_match_score * 0.15 +
                     mood_match_score * 0.15 +
-                    language_match_score * 0.1 +
+                    language_match_score * 0.05 +
                     quality_analysis.get("overall_relevance", 0.5) * 0.05
                 )
             else:
+                # General test: balanced approach with cultural emphasis
+                cultural_weight = 0.4 if test_case.expected_language else 0.2
                 overall_quality_score = (
                     genre_match_score * 0.3 +
-                    artist_diversity_score * 0.2 +
-                    mood_match_score * 0.2 +
-                    language_match_score * 0.2 +
-                    quality_analysis.get("overall_relevance", 0.5) * 0.1
+                    mood_match_score * 0.25 +
+                    language_match_score * cultural_weight +
+                    artist_diversity_score * 0.15 +
+                    quality_analysis.get("overall_relevance", 0.5) * 0.1 +
+                    quality_analysis.get("diversity_score", 0.5) * 0.05
                 )
             
-            # Determine if test passed
+            # Enhanced pass/fail criteria with stricter standards
             if test_case.expected_artist:
-                # For artist-specific cases, require strong artist match and decent overall quality
+                # Artist-specific: require strong artist match
                 artist_match_score = self._calculate_artist_match(recommendations, test_case.expected_artist)
                 passed = (
                     artist_match_score >= 0.8 and
-                    overall_quality_score >= 0.6
+                    overall_quality_score >= 0.65 and  # Slightly higher threshold
+                    len(recommendations) >= 3  # Ensure we got enough recommendations
                 )
             else:
+                # General tests: comprehensive quality check
                 passed = (
                     genre_match_score >= test_case.min_genre_match and
                     artist_diversity_score >= test_case.min_artist_diversity and
-                    overall_quality_score >= 0.6
+                    overall_quality_score >= 0.65 and  # Higher quality threshold
+                    len(recommendations) >= 3 and  # Ensure we got enough recommendations
+                    # Additional cultural authenticity check
+                    (not test_case.expected_language or language_match_score >= 0.6)
                 )
             
-            # Create reasoning
-            reasoning = quality_analysis.get("reasoning", "No detailed reasoning available")
+            # Enhanced reasoning with detailed breakdown
+            quality_assessment = quality_analysis.get("quality_assessment", "unknown")
+            base_reasoning = quality_analysis.get("reasoning", "No detailed reasoning available")
+            
+            detailed_reasoning = f"""
+Quality Assessment: {quality_assessment}
+- Genre Match: {genre_match_score:.2f} (expected ≥{test_case.min_genre_match})
+- Artist Diversity: {artist_diversity_score:.2f} (expected ≥{test_case.min_artist_diversity})
+- Mood Match: {mood_match_score:.2f}
+- Language Match: {language_match_score:.2f}
+- Overall Quality: {overall_quality_score:.2f} (expected ≥0.65)
+- Recommendations Count: {len(recommendations)} (expected ≥3)
+
+LLM Analysis: {base_reasoning}
+            """.strip()
             
             result = EvaluationResult(
                 test_case=test_case,
@@ -490,7 +720,7 @@ class EnhancedMusicEvaluator:
                 overall_quality_score=overall_quality_score,
                 mistral_analysis=quality_analysis,
                 passed=passed,
-                reasoning=reasoning
+                reasoning=detailed_reasoning
             )
             
             # Print results
@@ -504,6 +734,8 @@ class EnhancedMusicEvaluator:
             
         except Exception as e:
             print(f"❌ Error evaluating test case {test_case.id}: {e}")
+            import traceback
+            traceback.print_exc()
             return EvaluationResult(
                 test_case=test_case,
                 recommendations=[],
@@ -514,7 +746,7 @@ class EnhancedMusicEvaluator:
                 overall_quality_score=0.0,
                 mistral_analysis={},
                 passed=False,
-                reasoning=f"Error: {str(e)}"
+                reasoning=f"Error during evaluation: {str(e)}"
             )
     
     def _print_case_results(self, result: EvaluationResult):

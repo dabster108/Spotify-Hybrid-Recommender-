@@ -12,9 +12,49 @@ from dataclasses import dataclass, asdict
 from collections import defaultdict, deque
 import math
 from pathlib import Path
-from performance import time_function
-from progress import ProgressIndicator, with_progress
-from cache import RecommendationCache
+
+# Import local modules with fallback
+try:
+    from .performance import time_function
+except ImportError:
+    try:
+        from performance import time_function
+    except ImportError:
+        # Fallback decorator if performance module is not available
+        def time_function(func):
+            def wrapper(*args, **kwargs):
+                return func(*args, **kwargs)
+            return wrapper
+
+try:
+    from .progress import ProgressIndicator, with_progress
+except ImportError:
+    try:
+        from progress import ProgressIndicator, with_progress
+    except ImportError:
+        # Simple fallback for progress indicators
+        class ProgressIndicator:
+            def __init__(self, total=100): pass
+            def update(self, value): pass
+            def close(self): pass
+        def with_progress(func):
+            def wrapper(*args, **kwargs):
+                return func(*args, **kwargs)
+            return wrapper
+
+try:
+    from .cache import RecommendationCache
+except ImportError:
+    try:
+        from cache import RecommendationCache
+    except ImportError:
+        # Simple fallback cache
+        class RecommendationCache:
+            def __init__(self): self.cache = {}
+            def get(self, key): return self.cache.get(key)
+            def set(self, key, value): self.cache[key] = value
+            def clear(self): self.cache.clear()
+
 # Prefer relative import when running inside the package; fall back to absolute import when executed as top-level script
 try:
     # When run as part of the package (python -m Recommend_System.recommend)
@@ -22,14 +62,22 @@ try:
 except Exception:
     # When executed directly (python Recommend_System/recommend.py) the relative import fails,
     # fall back to importing the module by filename
-    import query_analyzer
+    try:
+        import query_analyzer
+    except ImportError:
+        query_analyzer = None
+
 # Import the advanced query analyzer
 try:
-    from query_analyzer import AdvancedMusicQueryAnalyzer
+    from .query_analyzer import AdvancedMusicQueryAnalyzer
     ANALYZER_AVAILABLE = True
 except ImportError:
-    ANALYZER_AVAILABLE = False
-    print("Advanced Query Analyzer not available, using fallback interpretation")
+    try:
+        from query_analyzer import AdvancedMusicQueryAnalyzer
+        ANALYZER_AVAILABLE = True
+    except ImportError:
+        ANALYZER_AVAILABLE = False
+        print("Advanced Query Analyzer not available, using fallback interpretation")
 
 @dataclass
 class Track:
@@ -87,8 +135,8 @@ class ListeningHistory:
 class HybridRecommendationSystem:
     def __init__(self):
         """Initialize the hybrid recommendation system."""
-        # API Credentials (loaded from environment; use a .envv file in project root)
-        # Try to load a parent .envv file (one level above this package) so secrets aren't embedded
+        # API Credentials (loaded from environment; use a .env file in project root)
+        # Try to load a parent .env file (one level above this package) so secrets aren't embedded
         try:
             # prefer package-relative import when used as package
             from .utils import load_env
@@ -100,8 +148,8 @@ class HybridRecommendationSystem:
                 load_env = None
 
         if 'load_env' in locals() and load_env:
-            # load .envv sitting in workspace/project root (one level up)
-            dotenv_path = str(Path(__file__).resolve().parents[1] / ".envv")
+            # load .env sitting in workspace/project root (one level up)
+            dotenv_path = str(Path(__file__).resolve().parents[1] / ".env")
             load_env(dotenv_path)
 
         self.spotify_client_id = os.getenv("SPOTIFY_CLIENT_ID", "")
@@ -255,8 +303,7 @@ class HybridRecommendationSystem:
 
     @time_function
     def interpret_query_with_llm(self, query: str) -> UserPreferences:
-        """Use Groq LLM to interpret natural language query into structured preferences with artist/song detection.
-        Improved to better handle cultural music genres and specific song requests."""
+        """Use Groq LLM to interpret natural language query with improved mood and genre detection."""
         try:
             headers = {
                 'Authorization': f'Bearer {self.groq_api_key}',
@@ -265,7 +312,7 @@ class HybridRecommendationSystem:
             
             prompt = f"""Analyze this music request and extract structured preferences: "{query}"
 
-CRITICAL: Determine if the user is looking for songs SIMILAR to a specific song or by a specific artist.
+CRITICAL: Pay attention to mood vs genre distinction. If user asks for "sad songs", the MOOD is "sad" and genre should be determined separately.
 
 Return a JSON object with these fields:
 - is_artist_specified: Boolean (true if user mentions specific artist, false for general requests)
@@ -273,8 +320,8 @@ Return a JSON object with these fields:
 - is_song_specified: Boolean (true if user mentions a specific song, false otherwise)
 - song_name: String (exact song name if specified, null if not)
 - song_artist: String (artist of the specific song if mentioned, null if not)
-- genres: List of music genres (e.g., ["pop", "rock", "electronic", "k-pop", "bollywood"])
-- moods: List of moods (e.g., ["happy", "energetic", "relaxing"])
+- genres: List of ACTUAL music genres (e.g., ["bollywood", "rock", "electronic", "k-pop", "folk"])
+- moods: List of emotional moods (e.g., ["sad", "happy", "energetic", "romantic", "calm"])
 - energy_level: Float 0-1 (0=very calm, 1=very energetic)
 - valence_level: Float 0-1 (0=very sad, 1=very happy)
 - tempo_preference: "slow", "medium", or "fast"
@@ -282,23 +329,32 @@ Return a JSON object with these fields:
 - activity_context: Context like "workout", "study", "party", "sleep" if mentioned
 - requested_count: Number if user specifies how many songs (e.g., "3 songs", "5 tracks")
 
-DETECTION EXAMPLES:
-- "songs by Taylor Swift" → is_artist_specified: true, artist_name: "Taylor Swift", is_song_specified: false
-- "songs like Harleys in Hawaii" → is_song_specified: true, song_name: "Harleys in Hawaii", song_artist: "Katy Perry", is_artist_specified: false
-- "similar to Fix You" → is_song_specified: true, song_name: "Fix You", song_artist: "Coldplay", is_artist_specified: false
-- "recommend some pop songs" → is_artist_specified: false, is_song_specified: false
-- "5 songs similar to Shape of You" → is_song_specified: true, song_name: "Shape of You", song_artist: "Ed Sheeran", requested_count: 5
+IMPORTANT RULES:
+1. MOOD vs GENRE: If user says "sad songs", mood=["sad"], genre should be music style like ["pop", "ballad"], NOT mood words
+2. LANGUAGE DETECTION: Look for language/culture words like "nepali", "hindi", "korean", "bollywood", "k-pop"
+3. GENRE ACCURACY: Use actual music genres, not mood adjectives
+4. DEFAULT COUNT: If no count specified, leave requested_count as null (system will default to 3)
+5. LANGUAGE INFERENCE: 
+   - For generic requests like "pop songs", "rock music" without language context → language_preference: "english"
+   - Only set language to null if user specifically asks for mixed/international music
+   - Cultural genres like "bollywood" → language_preference: "hindi"
+   - Cultural genres like "k-pop" → language_preference: "korean"
 
-For cultural/language requests like "nepali songs", "korean music":
-- Set language_preference to the language/culture
-- Set is_artist_specified: false (unless specific artist mentioned)
+EXAMPLES:
+- "sad songs" → moods: ["sad"], genres: ["pop"], language_preference: "english"
+- "pop songs" → genres: ["pop"], language_preference: "english"
+- "nepali folk music" → language_preference: "nepali", genres: ["folk"]
+- "bollywood songs" → language_preference: "hindi", genres: ["bollywood"]
+- "international music mix" → language_preference: null
+- "bollywood romantic songs" → language_preference: "hindi", genres: ["bollywood"], moods: ["romantic"]
+- "energetic workout music" → moods: ["energetic"], activity_context: "workout", genres: ["pop", "electronic"]
 
 Only return valid JSON, no explanations."""
 
             payload = {
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.2,
+                "temperature": 0.1,  # Lower temperature for more consistent results
                 "max_tokens": 400
             }
             
@@ -313,74 +369,59 @@ Only return valid JSON, no explanations."""
                 if json_match:
                     prefs_dict = json.loads(json_match.group())
                     
-                    # Convert to UserPreferences format
+                    # Enhanced validation and correction
                     genres = prefs_dict.get('genres') or ['pop']
                     moods = prefs_dict.get('moods') or ['neutral']
                     language = prefs_dict.get('language_preference')
                     
-                    # Make sure mood terms are not incorrectly included as genres
-                    mood_terms = ['happy', 'sad', 'melancholy', 'emotional', 'relaxing', 'chill', 
-                                 'calm', 'energetic', 'romantic', 'nostalgic', 'aggressive']
+                    # CRITICAL FIX: Remove mood words from genres
+                    mood_words = ['happy', 'sad', 'melancholy', 'emotional', 'relaxing', 'chill', 
+                                 'calm', 'energetic', 'romantic', 'nostalgic', 'aggressive', 'peaceful']
                     
-                    # When user specifically requests a mood, make sure it's handled appropriately
-                    # User intent should be prioritized - if they ask for "sad songs", we should respect that
-                    # Check if any mood terms are in the original query
-                    query_lower = query.lower()
-                    explicitly_requested_moods = []
-                    for mood_term in mood_terms:
-                        if mood_term in query_lower:
-                            explicitly_requested_moods.append(mood_term)
-                    
-                    # Only filter out mood terms from genres if they weren't explicitly requested
-                    filtered_genres = []
-                    explicitly_handled_moods = []
-                    
+                    # Clean genres - remove any mood words that got mixed in
+                    cleaned_genres = []
                     for genre in genres:
-                        if genre.lower() in mood_terms:
-                            # If it's a mood that was explicitly requested, keep it as the primary genre
-                            if genre.lower() in explicitly_requested_moods:
-                                filtered_genres.append(genre)
-                                explicitly_handled_moods.append(genre.lower())
-                            # Otherwise, add to moods instead
-                            elif genre.lower() not in [m.lower() for m in moods]:
-                                moods.append(genre)
+                        if genre.lower() not in mood_words:
+                            cleaned_genres.append(genre)
                         else:
-                            filtered_genres.append(genre)
+                            # If a mood word is in genres, make sure it's also in moods
+                            if genre.lower() not in [m.lower() for m in moods]:
+                                moods.append(genre)
                     
-                    # Make sure explicitly requested moods are in moods list
-                    for mood in explicitly_requested_moods:
-                        if mood not in explicitly_handled_moods and mood not in [m.lower() for m in moods]:
-                            moods.append(mood)
+                    # If no valid genres remain, add default based on language/context
+                    if not cleaned_genres:
+                        if language:
+                            lang_lower = language.lower()
+                            if lang_lower == 'nepali':
+                                cleaned_genres = ['folk', 'nepali']
+                            elif lang_lower == 'hindi':
+                                cleaned_genres = ['bollywood']
+                            elif lang_lower == 'korean':
+                                cleaned_genres = ['k-pop']
+                            elif lang_lower == 'japanese':
+                                cleaned_genres = ['j-pop']
+                            else:
+                                cleaned_genres = ['pop']
+                        else:
+                            cleaned_genres = ['pop']
                     
-                    # Use filtered genres
-                    genres = filtered_genres if filtered_genres else ['pop']
-                    
-                    # Add language-specific genres if a language is specified
+                    # Language preference enhancement
                     if language:
                         language_lower = language.lower()
-                        # Add cultural genres based on language
-                        if language_lower == 'nepali':
-                            genres.extend(['nepali', 'nepali folk', 'traditional', 'himalayan'])
-                            # Make sure 'nepali' is the first genre for higher priority
-                            if 'nepali' in genres and genres[0] != 'nepali':
-                                genres.remove('nepali')
-                                genres.insert(0, 'nepali')
-                        elif language_lower == 'hindi':
-                            genres.extend(['bollywood', 'hindi', 'indian'])
-                        elif language_lower == 'korean':
-                            genres.extend(['k-pop', 'korean'])
-                        elif language_lower == 'japanese':
-                            genres.extend(['j-pop', 'japanese'])
-                        elif language_lower == 'spanish':
-                            genres.extend(['latin', 'spanish'])
+                        # Add language-specific genres if not already present
+                        if language_lower == 'nepali' and 'nepali' not in [g.lower() for g in cleaned_genres]:
+                            cleaned_genres.insert(0, 'nepali')
+                        elif language_lower == 'hindi' and 'bollywood' not in [g.lower() for g in cleaned_genres]:
+                            cleaned_genres.insert(0, 'bollywood')
+                        elif language_lower == 'korean' and 'k-pop' not in [g.lower() for g in cleaned_genres]:
+                            cleaned_genres.insert(0, 'k-pop')
                     
                     # Remove duplicates while preserving order
                     unique_genres = []
-                    for genre in genres:
+                    for genre in cleaned_genres:
                         if genre not in unique_genres:
                             unique_genres.append(genre)
                             
-                    # Remove duplicates from moods
                     unique_moods = []
                     for mood in moods:
                         if mood not in unique_moods:
@@ -397,7 +438,7 @@ Only return valid JSON, no explanations."""
                         language_preference=language,
                         activity_context=prefs_dict.get('activity_context'),
                         is_artist_specified=prefs_dict.get('is_artist_specified', False),
-                        requested_count=prefs_dict.get('requested_count'),
+                        requested_count=prefs_dict.get('requested_count') or 3,  # Default to 3
                         is_song_specified=prefs_dict.get('is_song_specified', False),
                         song_name=prefs_dict.get('song_name'),
                         song_artist=prefs_dict.get('song_artist')
@@ -406,7 +447,7 @@ Only return valid JSON, no explanations."""
         except Exception as e:
             print(f"LLM interpretation failed: {e}")
         
-        # Fallback: Enhanced rule-based interpretation with advanced analyzer
+        # Fallback: Enhanced rule-based interpretation
         return self._fallback_query_interpretation(query)
 
     def _fallback_query_interpretation(self, query: str) -> UserPreferences:
@@ -914,7 +955,7 @@ Only return valid JSON, no explanations."""
 
     @time_function
     def search_spotify_tracks(self, preferences: UserPreferences, limit: int = 100, specific_artist: str = None) -> List[Track]:
-        """Enhanced search with cultural, religious, and contextual awareness, plus specific artist support."""
+        """Enhanced search with advanced cultural awareness, quality control, and precision targeting."""
         if not self.get_spotify_token():
             return []
         
@@ -922,218 +963,266 @@ Only return valid JSON, no explanations."""
         all_tracks = []
         seen_ids = set()
         
-        # Build search queries from preferences with cultural precision
+        # Build enhanced search queries with intelligent prioritization
         search_queries = []
         
-        # SPECIFIC ARTIST REQUEST - Override other searches
+        # SPECIFIC ARTIST REQUEST - Maximum Precision Strategy
         if specific_artist:
-            print(f"Focusing search on specific artist: {specific_artist}")
-            # Primary artist searches - more precise queries
-            search_queries.extend([
-                f'artist:"{specific_artist}"',  # Exact artist match
-                f'artist:{specific_artist}',    # Artist field search
-                f'"{specific_artist}"',         # Exact name in quotes
-            ])
+            print(f"🎯 PRECISION ARTIST SEARCH: {specific_artist}")
             
-            # Add collaboration searches (feat., with, collab) - more specific
-            collaboration_terms = ['feat', 'featuring', 'with', 'ft']
-            for term in collaboration_terms:
+            # Tier 1: Exact artist queries (highest precision)
+            exact_queries = [
+                f'artist:"{specific_artist}"',  # Exact field match
+                f'artist:{specific_artist.replace(" ", "+")}',  # Space-optimized
+                f'"{specific_artist}"',  # Quoted exact match
+            ]
+            search_queries.extend(exact_queries)
+            
+            # Tier 2: Collaboration and featuring searches
+            collab_terms = ['feat.', 'featuring', 'ft.', 'with', '&', 'x']
+            for term in collab_terms:
                 search_queries.extend([
                     f'artist:"{specific_artist}" {term}',
                     f'{term} "{specific_artist}"',
                     f'artist:{specific_artist} {term}',
-                    f'{term} {specific_artist}',
                 ])
             
-            # Add genre if specified
+            # Tier 3: Genre + artist combinations (if preferences available)
             if preferences.genres:
                 for genre in preferences.genres[:2]:
                     search_queries.extend([
-                        f'artist:"{specific_artist}" genre:{genre}',
-                        f'{specific_artist} {genre}'
+                        f'artist:"{specific_artist}" genre:"{genre}"',
+                        f'{specific_artist} {genre}',
+                        f'genre:"{genre}" "{specific_artist}"'
                     ])
             
-            print(f"Using {len(search_queries)} artist-specific search queries")
+            print(f"🔍 Generated {len(search_queries)} precision artist queries")
             
         else:
-            # Language/Cultural searches (highest priority) - More specific approach
+            # CULTURAL/LANGUAGE SEARCH - Enhanced Cultural Intelligence
             if preferences.language_preference:
                 lang = preferences.language_preference.lower()
+                print(f"🌍 CULTURAL SEARCH: {lang.upper()} music")
                 
-                # Use specific cultural/regional terms first, then broader searches
-                # Cultural/Regional variations with known Nepali artists and terms
+                # Enhanced cultural search strategies by language
                 if lang == 'nepali':
-                    # Known Nepali artists and specific terms
-                    popular_artists = [
-                        'Narayan Gopal', 'Aruna Lama', 'Ani Choying Drolma', 'Phatteman',
-                        'Bipul Chettri', 'Sugam Pokhrel', 'Pramod Kharel', 'Raju Lama',
-                        'Deepak Bajracharya', 'Tara Devi', 'Kunti Moktan', 'Arun Thapa',
-                        'Yogeshwor Amatya', 'Bartika Eam Rai', 'Kandara', 'Night'
+                    # Tier 1: Premium Nepali artists (highest quality)
+                    premium_nepali = [
+                        'Narayan Gopal', 'Aruna Lama', 'Bipul Chettri', 'Sugam Pokhrel',
+                        'Pramod Kharel', 'Raju Lama', 'Ani Choying Drolma', 'Phatteman',
+                        'Bartika Eam Rai', 'Deepak Bajracharya', 'Arun Thapa', 'Tara Devi'
                     ]
                     
-                    cultural_terms = [
-                        'Nepal Idol', 'Deusi Bhailo', 'Tihar songs', 'Dashain songs',
-                        'Lok Dohori', 'Adhunik Geet', 'Modern Song', 'Nepali Lok Geet',
-                        'Nepali folk', 'Nepali pop', 'Nepali modern', 'Himalayan folk'
-                    ]
-                    
-                    # Add specific artist searches
-                    for artist in popular_artists[:5]:  # Limit to first 5 artists
+                    for artist in premium_nepali[:6]:  # Top 6 artists
                         search_queries.append(f'artist:"{artist}"')
                     
-                    # Add general cultural terms
-                    search_queries.extend(cultural_terms)
+                    # Tier 2: Cultural keywords and terms
+                    nepali_terms = [
+                        'Nepal Idol winner', 'Nepali folk songs', 'Himalayan music',
+                        'Lok Dohori', 'Adhunik Geet', 'Modern Nepali Song',
+                        'Nepal traditional music', 'Kathmandu music scene'
+                    ]
+                    search_queries.extend(nepali_terms)
                     
-                    # Add more specific genre searches
+                    # Tier 3: Genre combinations
                     search_queries.extend([
-                        'genre:"world-music" nepal', 'genre:"folk" himalaya', 
-                        'nepal traditional folk', 'nepali folk music'
+                        'genre:"world-music" nepal traditional',
+                        'genre:"folk" himalayan music',
+                        'nepali romantic songs collection'
                     ])
                     
-                    # Add mood + Nepali combinations with highest priority
-                    for mood in preferences.moods[:2]:
-                        # These mood-specific searches should be prioritized
-                        mood_queries = [
-                            f'nepali {mood} songs',
-                            f'nepali {mood}',
-                            f'nepal {mood} song', 
-                            f'himalayan {mood}',
-                            f'{mood} nepali geet'
-                        ]
-                        # Insert at the beginning for highest priority
-                        search_queries = mood_queries + search_queries
                 elif lang == 'hindi':
+                    # Tier 1: A-list Bollywood playback singers
+                    bollywood_legends = [
+                        'Arijit Singh', 'Shreya Ghoshal', 'Atif Aslam', 'Rahat Fateh Ali Khan',
+                        'Armaan Malik', 'Darshan Raval', 'Jubin Nautiyal', 'K.K.',
+                        'Sonu Nigam', 'Shaan', 'Kishore Kumar', 'Lata Mangeshkar'
+                    ]
+                    
+                    for artist in bollywood_legends[:8]:  # Top 8 artists
+                        search_queries.append(f'artist:"{artist}"')
+                    
+                    # Tier 2: Context-aware searches
+                    if preferences.moods:
+                        for mood in preferences.moods[:2]:
+                            mood_lower = mood.lower()
+                            if mood_lower in ['sad', 'emotional', 'melancholy']:
+                                search_queries.extend([
+                                    f'artist:"Arijit Singh" {mood}',
+                                    f'artist:"Atif Aslam" emotional',
+                                    f'artist:"Rahat Fateh Ali Khan" ghazal',
+                                    'bollywood sad songs hits',
+                                    'hindi emotional playlist'
+                                ])
+                            elif mood_lower in ['romantic', 'love']:
+                                search_queries.extend([
+                                    f'artist:"Armaan Malik" romantic',
+                                    f'artist:"Darshan Raval" love songs',
+                                    'bollywood romantic hits',
+                                    'hindi love songs collection'
+                                ])
+                            elif mood_lower in ['energetic', 'party', 'dance']:
+                                search_queries.extend([
+                                    'bollywood party songs',
+                                    'hindi dance hits',
+                                    'bollywood chartbusters'
+                                ])
+                    
+                    # Tier 3: Quality-focused searches
                     search_queries.extend([
-                        'artist:"Lata Mangeshkar"', 'artist:"Kishore Kumar"', 'artist:"Arijit Singh"',
-                        'artist:"Shreya Ghoshal"', 'artist:"Rahat Fateh Ali Khan"',
-                        'bollywood', 'hindi film music', 'playback singer', 'desi music',
-                        'genre:"bollywood" hindi', 'mumbai film music'
+                        'bollywood top hits', 'playback singer chartbusters',
+                        'hindi film music awards', 'bollywood melody hits',
+                        'genre:"bollywood" top rated', 'hindi music trending'
                     ])
+                    
                 elif lang == 'korean':
+                    # Tier 1: Top K-pop groups and soloists
+                    kpop_stars = [
+                        'BTS', 'BLACKPINK', 'TWICE', 'Red Velvet', 'IU',
+                        'EXO', 'Girls Generation', 'ITZY', 'aespa', 'NewJeans'
+                    ]
+                    
+                    for artist in kpop_stars[:6]:
+                        search_queries.append(f'artist:"{artist}"')
+                    
                     search_queries.extend([
-                        'artist:"BTS"', 'artist:"BLACKPINK"', 'artist:"IU"', 'artist:"TWICE"',
-                        'artist:"Red Velvet"', 'artist:"EXO"', 'artist:"Girls Generation"',
-                        'genre:"k-pop"', 'korean pop', 'hallyu wave', 'seoul music'
+                        'genre:"k-pop" top hits', 'korean pop trending',
+                        'hallyu wave music', 'seoul music charts',
+                        'k-pop girl group', 'k-pop boy group'
                     ])
+                    
                 elif lang == 'spanish':
+                    # Tier 1: Premium Spanish/Latin artists
+                    latin_artists = [
+                        'Jesse & Joy', 'Manu Chao', 'Gipsy Kings', 'Shakira',
+                        'Mana', 'Alejandro Sanz', 'Julieta Venegas'
+                    ]
+                    
+                    for artist in latin_artists[:5]:
+                        search_queries.append(f'artist:"{artist}"')
+                    
                     search_queries.extend([
-                        'artist:"Jesse & Joy"', 'artist:"Manu Chao"', 'artist:"Gipsy Kings"',
-                        'genre:"latin" spanish', 'hispanic music', 'latin america'
+                        'genre:"latin" spanish hits', 'hispanic music top',
+                        'latin america music', 'spanish romantic songs'
                     ])
+                    
                 elif lang == 'japanese':
+                    # Tier 1: J-pop and Japanese artists
+                    jpop_artists = [
+                        'Utada Hikaru', 'Mr.Children', 'ONE OK ROCK',
+                        'Yui', 'Aimyon', 'Official HIGE DANdism'
+                    ]
+                    
+                    for artist in jpop_artists[:4]:
+                        search_queries.append(f'artist:"{artist}"')
+                    
                     search_queries.extend([
-                        'artist:"Utada Hikaru"', 'artist:"Mr.Children"', 'artist:"ONE OK ROCK"',
-                        'genre:"j-pop"', 'japanese pop', 'anime soundtrack'
-                    ])
-                elif lang == 'arabic':
-                    search_queries.extend([
-                        'artist:"Fairuz"', 'artist:"Um Kulthum"', 'artist:"Marcel Khalife"',
-                        'genre:"world-music" arabic', 'middle eastern music', 'oud music'
-                    ])
-                elif lang == 'punjabi':
-                    search_queries.extend([
-                        'artist:"Gurdas Maan"', 'artist:"Diljit Dosanjh"', 'artist:"Sidhu Moose Wala"',
-                        'genre:"bhangra"', 'punjabi folk', 'dhol music'
-                    ])
-                elif lang == 'chinese':
-                    search_queries.extend([
-                        'artist:"Jay Chou"', 'artist:"Faye Wong"', 'artist:"Teresa Teng"',
-                        'genre:"c-pop"', 'mandarin music', 'chinese ballad'
-                    ])
-                elif lang == 'french':
-                    search_queries.extend([
-                        'artist:"Édith Piaf"', 'artist:"Charles Aznavour"', 'artist:"Stromae"',
-                        'genre:"chanson"', 'french pop', 'francophone music'
-                    ])
-                elif lang == 'portuguese':
-                    search_queries.extend([
-                        'artist:"Caetano Veloso"', 'artist:"Gilberto Gil"', 'artist:"Marisa Monte"',
-                        'genre:"bossa-nova"', 'brazilian music', 'samba'
-                    ])
-                elif lang == 'african':
-                    search_queries.extend([
-                        'artist:"Fela Kuti"', 'artist:"Miriam Makeba"', 'artist:"Youssou N\'Dour"',
-                        'genre:"afrobeat"', 'african traditional', 'world music africa'
+                        'genre:"j-pop" hits', 'japanese pop music',
+                        'anime soundtrack hits', 'tokyo music scene'
                     ])
                 
-                # Add broader cultural searches after specific ones
+                # Universal cultural enhancers
                 search_queries.extend([
                     f'genre:"world-music" {preferences.language_preference}',
-                    f'{preferences.language_preference} traditional',
-                    f'{preferences.language_preference} folk music'
+                    f'{preferences.language_preference} traditional music',
+                    f'{preferences.language_preference} popular songs'
                 ])
             
-            # Activity/Context-based searches
+            # ACTIVITY/CONTEXT-BASED SEARCHES
             if preferences.activity_context:
                 context = preferences.activity_context.lower()
+                context_queries = []
                 
-                if context == 'workout':
-                    search_queries.extend(['workout music', 'gym playlist', 'fitness', 'training music'])
-                elif context == 'study':
-                    search_queries.extend(['study music', 'focus playlist', 'concentration', 'lo-fi'])
-                elif context == 'sleep':
-                    search_queries.extend(['sleep music', 'lullaby', 'ambient', 'calm music'])
-                elif context == 'driving':
-                    search_queries.extend(['road trip', 'driving music', 'highway songs'])
-                elif context == 'party':
-                    search_queries.extend(['party music', 'dance hits', 'club music'])
-                elif context == 'wedding':
-                    search_queries.extend(['wedding music', 'marriage songs', 'celebration'])
-                elif context == 'morning':
-                    search_queries.extend(['morning music', 'wake up songs', 'breakfast music'])
-                elif context == 'meditation':
-                    search_queries.extend(['meditation music', 'zen', 'spiritual', 'mindfulness'])
-                elif context == 'hindu_spiritual':
-                    search_queries.extend(['bhajan', 'kirtan', 'devotional', 'mantra', 'spiritual'])
-                elif context == 'christian':
-                    search_queries.extend(['gospel', 'christian music', 'worship', 'hymn'])
-                elif context == 'christmas':
-                    search_queries.extend(['christmas music', 'holiday songs', 'xmas carols'])
-                elif context == 'islamic':
-                    search_queries.extend(['islamic music', 'nasheed', 'spiritual'])
-                elif context == 'diwali':
-                    search_queries.extend(['diwali songs', 'festival music', 'celebration'])
-                elif context == 'holi':
-                    search_queries.extend(['holi songs', 'color festival', 'celebration'])
+                if context in ['workout', 'gym', 'fitness']:
+                    context_queries.extend([
+                        'workout motivation music', 'gym playlist hits',
+                        'fitness training songs', 'high energy workout'
+                    ])
+                elif context in ['study', 'focus', 'concentration']:
+                    context_queries.extend([
+                        'study music instrumental', 'focus playlist ambient',
+                        'concentration background music', 'lo-fi study beats'
+                    ])
+                elif context in ['sleep', 'relaxation', 'calm']:
+                    context_queries.extend([
+                        'sleep music ambient', 'relaxation playlist',
+                        'calm background music', 'peaceful instrumental'
+                    ])
+                elif context in ['party', 'dance', 'celebration']:
+                    context_queries.extend([
+                        'party music hits', 'dance floor anthems',
+                        'celebration songs', 'club music popular'
+                    ])
+                elif context in ['romantic', 'date', 'love']:
+                    context_queries.extend([
+                        'romantic songs collection', 'love music playlist',
+                        'date night music', 'romantic hits'
+                    ])
+                elif context in ['morning', 'breakfast', 'wake up']:
+                    context_queries.extend([
+                        'morning music uplifting', 'wake up songs positive',
+                        'breakfast music light', 'start day playlist'
+                    ])
+                elif context in ['devotional', 'spiritual', 'meditation']:
+                    context_queries.extend([
+                        'devotional music peaceful', 'spiritual songs',
+                        'meditation music ambient', 'bhajan collection'
+                    ])
+                
+                search_queries.extend(context_queries)
             
-            # Genre + mood combinations
-            genres = preferences.genres or []  # Handle None case
-            moods = preferences.moods or []    # Handle None case
+            # GENRE + MOOD COMBINATIONS (Enhanced)
+            genres = preferences.genres or []
+            moods = preferences.moods or []
+            
+            # Smart genre-mood pairing
             for genre in genres[:3]:
                 for mood in moods[:2]:
-                    search_queries.append(f'genre:{genre} {mood}')
+                    search_queries.append(f'genre:"{genre}" {mood}')
+                    search_queries.append(f'{genre} {mood} songs')
             
-            # Pure genre searches
+            # Pure genre searches with quality indicators
             for genre in genres[:3]:
-                search_queries.append(f'genre:{genre}')
+                search_queries.extend([
+                    f'genre:"{genre}" top hits',
+                    f'genre:"{genre}" popular',
+                    f'{genre} music trending'
+                ])
             
-            # Artist-based searches
-            artists = preferences.artists_similar_to or []  # Handle None case
-            for artist in artists[:2]:
-                search_queries.append(f'artist:{artist}')
+            # ARTIST SIMILARITY SEARCHES
+            for artist in preferences.artists_similar_to[:2]:
+                search_queries.extend([
+                    f'artist:"{artist}" similar',
+                    f'similar to "{artist}"',
+                    f'artist:"{artist}" recommendations'
+                ])
             
-            # General mood searches
-            search_queries.extend(moods[:3])  # Use the safe moods variable
+            # MOOD-SPECIFIC SEARCHES
+            for mood in moods[:3]:
+                search_queries.extend([
+                    f'{mood} music playlist',
+                    f'{mood} songs collection'
+                ])
         
-        print(f"Searching with {len(search_queries)} {'artist-specific' if specific_artist else 'culturally-aware'} queries...")
+        print(f"🔍 Enhanced search: {len(search_queries)} intelligent queries")
         if preferences.language_preference and not specific_artist:
-            # Show the first few queries for cultural searches
-            print(f"Example searches for {preferences.language_preference} music:")
-            for query in search_queries[:5]:
-                print(f"  - {query}")
+            print(f"🌍 Cultural focus: {preferences.language_preference.upper()}")
+            for i, query in enumerate(search_queries[:5]):
+                print(f"   {i+1}. {query}")
         
-        # Search with cultural priority: prioritize specific cultural searches first
+        # INTELLIGENT SEARCH EXECUTION with Quality Control
         cultural_tracks = []
         general_tracks = []
         
-        search_limit = 25 if specific_artist else 20  # More results for specific artist requests
+        search_limit = 25 if specific_artist else 20
+        batch_size = 30 if specific_artist else 25
         
         for i, query in enumerate(search_queries[:search_limit]):
             try:
                 params = {
                     'q': query,
                     'type': 'track',
-                    'limit': min(30 if specific_artist else 25, max(10, limit // len(search_queries[:search_limit]))),
+                    'limit': min(batch_size, max(10, limit // len(search_queries[:search_limit]))),
                     'market': 'US'
                 }
                 
@@ -1149,47 +1238,111 @@ Only return valid JSON, no explanations."""
                             seen_ids.add(track_data['id'])
                             track = self._convert_spotify_track(track_data)
                             
-                            # For specific artist requests, validate artist match more strictly
+                            # ENHANCED QUALITY CONTROL
+                            if not self._passes_quality_check(track, preferences, specific_artist):
+                                continue
+                            
+                            # ARTIST VALIDATION for specific artist requests
                             if specific_artist:
-                                track_artists = [artist.lower().strip() for artist in track.artists]
-                                specific_artist_lower = specific_artist.lower().strip()
-                                
-                                # Check if the specific artist is actually in the track's artists
-                                artist_match = False
-                                for artist in track_artists:
-                                    if (artist == specific_artist_lower or 
-                                        specific_artist_lower in artist.split() or
-                                        any(specific_artist_lower in part.strip() for part in artist.split(' feat')) or
-                                        any(specific_artist_lower in part.strip() for part in artist.split(' featuring')) or
-                                        any(specific_artist_lower in part.strip() for part in artist.split(' with')) or
-                                        any(specific_artist_lower in part.strip() for part in artist.split(' & '))):
-                                        artist_match = True
-                                        break
-                                
-                                if artist_match:
+                                if self._validate_artist_match(track, specific_artist):
                                     cultural_tracks.append(track)
-                                # Skip tracks where the artist doesn't match
                             else:
-                                # Prioritize cultural authenticity for non-artist requests
-                                if preferences.language_preference and i < 10:  # First 10 queries are most culturally specific
+                                # CULTURAL PRIORITIZATION for general requests
+                                if preferences.language_preference and i < 12:  # First 12 queries are culturally specific
                                     cultural_tracks.append(track)
                                 else:
                                     general_tracks.append(track)
                             
             except Exception as e:
-                print(f"Search error for '{query}': {e}")
+                print(f"🚫 Search error for '{query}': {e}")
                 continue
         
-        # Combine results with cultural/artist tracks first
-        all_tracks = cultural_tracks + general_tracks[:max(20, limit - len(cultural_tracks))]
+        # INTELLIGENT RESULT COMBINATION
+        all_tracks = cultural_tracks + general_tracks[:max(25, limit - len(cultural_tracks))]
         
         if specific_artist:
-            print(f"Found {len(cultural_tracks)} tracks by/featuring {specific_artist} + {len(general_tracks)} related tracks")
+            print(f"✅ Found {len(cultural_tracks)} verified tracks by/featuring {specific_artist}")
         else:
-            print(f"Found {len(cultural_tracks)} culturally-specific + {len(general_tracks)} general tracks")
+            print(f"✅ Cultural tracks: {len(cultural_tracks)}, General tracks: {len(general_tracks[:25])}")
         
-        print(f"Total: {len(all_tracks)} {'artist-focused' if specific_artist else 'culturally-relevant'} tracks from Spotify")
+        print(f"🎵 Total enhanced results: {len(all_tracks)} high-quality tracks")
         return all_tracks
+    
+    def _passes_quality_check(self, track: Track, preferences: UserPreferences, specific_artist: str = None) -> bool:
+        """Enhanced quality control filter"""
+        # Basic popularity threshold
+        min_popularity = 3 if preferences.language_preference else 8
+        if track.popularity < min_popularity:
+            return False
+        
+        # Enhanced suspicious content detection
+        track_text = f"{track.name} {' '.join(track.artists)} {track.album}".lower()
+        
+        high_risk_patterns = [
+            'karaoke version', 'instrumental version', 'tribute to',
+            'cover version', 'remix compilation', 'dj mix',
+            'various artists compilation', 'ultimate collection'
+        ]
+        
+        medium_risk_patterns = [
+            'hot bollywood', 'bollywood hits compilation', 'best of',
+            'greatest hits vol', 'top songs collection', 'party mix'
+        ]
+        
+        # Block high-risk content entirely
+        if any(pattern in track_text for pattern in high_risk_patterns):
+            return False
+        
+        # Medium-risk content requires higher popularity
+        if any(pattern in track_text for pattern in medium_risk_patterns):
+            if track.popularity < 25:
+                return False
+        
+        # Duration check (avoid very short clips or very long tracks)
+        if track.duration_ms:
+            duration_minutes = track.duration_ms / 60000
+            if duration_minutes < 1.0 or duration_minutes > 10.0:
+                return False
+        
+        # Artist name quality check (avoid clearly fake or spam artists)
+        for artist in track.artists:
+            artist_lower = artist.lower()
+            spam_indicators = ['unknown artist', 'various', 'compilation', 'dj', 'remix']
+            if any(indicator in artist_lower for indicator in spam_indicators):
+                if track.popularity < 15:
+                    return False
+        
+        return True
+    
+    def _validate_artist_match(self, track: Track, specific_artist: str) -> bool:
+        """Validate that track actually contains the requested artist"""
+        track_artists = [artist.lower().strip() for artist in track.artists]
+        specific_artist_lower = specific_artist.lower().strip()
+        
+        for artist in track_artists:
+            # Exact match
+            if artist == specific_artist_lower:
+                return True
+            
+            # Handle "The Artist" vs "Artist" variations
+            if artist.replace("the ", "") == specific_artist_lower.replace("the ", ""):
+                return True
+            
+            # Check if specific artist is significant part of track artist
+            artist_words = set(artist.split())
+            specific_words = set(specific_artist_lower.split())
+            
+            # At least 70% of the specific artist's words should match
+            if len(specific_words.intersection(artist_words)) >= max(1, len(specific_words) * 0.7):
+                return True
+            
+            # Handle collaboration patterns
+            collab_patterns = ['feat', 'featuring', 'ft.', 'with', '&', 'x']
+            for pattern in collab_patterns:
+                if pattern in artist and specific_artist_lower in artist:
+                    return True
+        
+        return False
 
     def _convert_spotify_track(self, track_data: dict) -> Track:
         """Convert Spotify API response to Track object."""
@@ -1323,57 +1476,182 @@ Only return valid JSON, no explanations."""
         return scored_tracks[:top_k]
 
     def ranking_recommendations(self, tracks: List[Track], preferences: UserPreferences, top_k: int = 10) -> List[Tuple[Track, float]]:
-        """Ranking-based recommendations using audio features and preferences with cultural authenticity."""
-        print("Applying ranking-based scoring...")
+        """Enhanced ranking-based recommendations with superior quality filtering and cultural authenticity."""
+        print("🎯 Applying enhanced ranking-based scoring...")
         
+        # STEP 1: Advanced Quality Filtering
+        quality_filtered_tracks = []
+        for track in tracks:
+            # Enhanced quality checks
+            quality_score = 0
+            
+            # Popularity thresholds based on language/cultural context
+            if preferences.language_preference:
+                lang = preferences.language_preference.lower()
+                if lang in ['nepali', 'hindi']:
+                    min_popularity = 3  # Lower threshold for cultural music
+                else:
+                    min_popularity = 8
+            else:
+                min_popularity = 10
+                
+            if track.popularity < min_popularity:
+                continue
+                
+            # Enhanced suspicious content detection
+            suspicious_patterns = [
+                'hot bollywood', 'bollywood hits compilation', 'hindi songs mix',
+                'best of bollywood', 'top hindi songs', 'bollywood jukebox',
+                'vol.', 'part', 'collection', 'album mix', 'various artists compilation',
+                'karaoke', 'instrumental version', 'tribute', 'cover version'
+            ]
+            
+            track_name_lower = track.name.lower()
+            track_text = f"{track.name} {' '.join(track.artists)} {track.album}".lower()
+            
+            # Skip compilation-style tracks unless they have good popularity
+            if any(pattern in track_text for pattern in suspicious_patterns):
+                if track.popularity < 25:
+                    continue
+                else:
+                    quality_score -= 0.2  # Penalty for compilation tracks
+            
+            # Duration quality check (avoid very short or very long tracks)
+            duration_minutes = track.duration_ms / 60000 if track.duration_ms else 3
+            if duration_minutes < 1.5 or duration_minutes > 8:
+                quality_score -= 0.1
+            elif 2.5 <= duration_minutes <= 5.5:
+                quality_score += 0.1
+                
+            quality_filtered_tracks.append((track, quality_score))
+        
+        print(f"🔍 Quality filter: {len(tracks)} → {len(quality_filtered_tracks)} tracks")
+        
+        # STEP 2: Enhanced Scoring System
         scored_tracks = []
         
-        for track in tracks:
-            score = 0.0
+        # Premium artist databases for quality scoring
+        premium_artists = {
+            # Hindi/Bollywood (A-tier)
+            'arijit singh': 0.95, 'shreya ghoshal': 0.9, 'atif aslam': 0.85,
+            'rahat fateh ali khan': 0.85, 'armaan malik': 0.8, 'darshan raval': 0.75,
+            'k.k.': 0.85, 'sonu nigam': 0.85, 'shaan': 0.75, 'jubin nautiyal': 0.7,
+            'kishore kumar': 0.95, 'mohammed rafi': 0.95, 'lata mangeshkar': 0.95,
+            'mukesh': 0.9, 'asha bhosle': 0.9, 'udit narayan': 0.8, 'alka yagnik': 0.8,
             
-            # Cultural authenticity boost (NEW)
+            # Nepali (A-tier)
+            'narayan gopal': 0.95, 'aruna lama': 0.9, 'bipul chettri': 0.85,
+            'sugam pokhrel': 0.8, 'pramod kharel': 0.75, 'raju lama': 0.8,
+            'ani choying drolma': 0.85, 'phatteman': 0.7, 'bartika eam rai': 0.75,
+            
+            # International (A-tier)
+            'bts': 0.9, 'blackpink': 0.85, 'twice': 0.8, 'red velvet': 0.8,
+            'iu': 0.85, 'exo': 0.8, 'girls generation': 0.75,
+            
+            # English (A-tier)
+            'ed sheeran': 0.9, 'taylor swift': 0.9, 'adele': 0.9, 'bruno mars': 0.85,
+            'coldplay': 0.85, 'the weeknd': 0.8, 'dua lipa': 0.8, 'billie eilish': 0.8
+        }
+        
+        for track, base_quality in quality_filtered_tracks:
+            score = base_quality
+            
+            # ENHANCED ARTIST QUALITY SCORING
+            artist_quality_boost = 0.0
+            for artist in track.artists:
+                artist_lower = artist.lower().strip()
+                if artist_lower in premium_artists:
+                    artist_quality_boost = max(artist_quality_boost, premium_artists[artist_lower])
+                    break
+            
+            score += artist_quality_boost
+            
+            # ENHANCED CULTURAL AUTHENTICITY SCORING
             if preferences.language_preference:
                 lang = preferences.language_preference.lower()
                 track_text = f"{track.name} {' '.join(track.artists)} {track.album}".lower()
                 
-                # Known cultural indicators for authenticity
-                cultural_indicators = {
-                    'nepali': ['narayan gopal', 'aruna lama', 'bipul chettri', 'sugam pokhrel', 'pramod kharel', 
-                              'raju lama', 'ani choying', 'phatteman', 'kathmandu', 'nepal', 'himalayan'],
-                    'hindi': ['lata mangeshkar', 'kishore kumar', 'arijit singh', 'shreya ghoshal', 'bollywood', 
-                             'mumbai', 'delhi', 'hindi', 'bollywood'],
-                    'korean': ['bts', 'blackpink', 'twice', 'red velvet', 'exo', 'iu', 'seoul', 'korean', 'kpop'],
-                    'spanish': ['manu chao', 'gipsy kings', 'latino', 'spanish', 'hispanic', 'latin'],
-                    'japanese': ['utada hikaru', 'mr.children', 'one ok rock', 'japanese', 'jpop', 'tokyo'],
-                    'arabic': ['fairuz', 'um kulthum', 'marcel khalife', 'arabic', 'middle eastern'],
-                    'punjabi': ['gurdas maan', 'diljit dosanjh', 'sidhu moose wala', 'punjabi', 'bhangra'],
-                    'chinese': ['jay chou', 'faye wong', 'teresa teng', 'chinese', 'mandarin'],
-                    'french': ['édith piaf', 'charles aznavour', 'stromae', 'french', 'chanson'],
-                    'portuguese': ['caetano veloso', 'gilberto gil', 'marisa monte', 'brazilian', 'bossa'],
-                    'african': ['fela kuti', 'miriam makeba', 'youssou n\'dour', 'african', 'afrobeat']
+                # Comprehensive cultural indicators with scoring
+                cultural_authenticity = 0.0
+                
+                if lang == 'nepali':
+                    nepali_indicators = {
+                        # Artists (high value)
+                        'narayan gopal': 0.8, 'aruna lama': 0.7, 'bipul chettri': 0.6,
+                        'sugam pokhrel': 0.5, 'pramod kharel': 0.5, 'raju lama': 0.5,
+                        'ani choying': 0.6, 'phatteman': 0.4, 'bartika eam rai': 0.5,
+                        # Keywords (medium value)
+                        'nepal': 0.4, 'kathmandu': 0.3, 'himalayan': 0.3, 'nepali': 0.5,
+                        'lok dohori': 0.6, 'adhunik geet': 0.5, 'deusi bhailo': 0.4
+                    }
+                    for indicator, value in nepali_indicators.items():
+                        if indicator in track_text:
+                            cultural_authenticity = max(cultural_authenticity, value)
+                            
+                elif lang == 'hindi':
+                    hindi_indicators = {
+                        # Artists (high value)
+                        'arijit singh': 0.8, 'shreya ghoshal': 0.7, 'atif aslam': 0.6,
+                        'rahat fateh': 0.6, 'armaan malik': 0.5, 'darshan raval': 0.5,
+                        # Keywords (medium value)
+                        'bollywood': 0.6, 'playback': 0.5, 'hindi': 0.4, 'mumbai': 0.3,
+                        'filmi': 0.5, 'indian': 0.3
+                    }
+                    for indicator, value in hindi_indicators.items():
+                        if indicator in track_text:
+                            cultural_authenticity = max(cultural_authenticity, value)
+                            
+                elif lang == 'korean':
+                    korean_indicators = {
+                        'bts': 0.8, 'blackpink': 0.7, 'twice': 0.6, 'red velvet': 0.6,
+                        'k-pop': 0.6, 'kpop': 0.6, 'korean': 0.4, 'seoul': 0.3
+                    }
+                    for indicator, value in korean_indicators.items():
+                        if indicator in track_text:
+                            cultural_authenticity = max(cultural_authenticity, value)
+                
+                score += cultural_authenticity
+            
+            # POPULARITY SCORING (Enhanced)
+            if track.popularity > 60:
+                score += (track.popularity / 100) * 0.4
+            elif track.popularity > 30:
+                score += (track.popularity / 100) * 0.3
+            elif track.popularity > 15:
+                score += (track.popularity / 100) * 0.2
+            else:
+                score += (track.popularity / 100) * 0.1
+            
+            # AUDIO FEATURE MATCHING (Enhanced)
+            if hasattr(track, 'energy') and track.energy > 0:
+                # Energy level matching with context awareness
+                energy_target = preferences.energy_level
+                if preferences.activity_context:
+                    if preferences.activity_context in ['workout', 'party', 'dance']:
+                        energy_target = max(energy_target, 0.8)
+                    elif preferences.activity_context in ['study', 'sleep', 'meditation']:
+                        energy_target = min(energy_target, 0.4)
+                
+                energy_diff = abs(track.energy - energy_target)
+                score += (1 - energy_diff) * 0.3
+                
+                # Valence (happiness) matching with mood context
+                valence_target = preferences.valence_level
+                mood_adjustments = {
+                    'sad': 0.2, 'melancholy': 0.3, 'emotional': 0.4,
+                    'happy': 0.8, 'joyful': 0.9, 'energetic': 0.7,
+                    'romantic': 0.6, 'peaceful': 0.6, 'calm': 0.5
                 }
                 
-                if lang in cultural_indicators:
-                    for indicator in cultural_indicators[lang]:
-                        if indicator in track_text:
-                            score += 0.4  # Strong cultural authenticity boost
-                            break
-            
-            # Popularity score (normalized, but lower weight for cultural queries)
-            weight = 0.1 if preferences.language_preference else 0.2
-            score += (track.popularity / 100) * weight
-            
-            # Audio feature matching
-            if hasattr(track, 'energy') and track.energy > 0:
-                # Energy level matching
-                energy_diff = abs(track.energy - preferences.energy_level)
-                score += (1 - energy_diff) * 0.25
+                for mood in preferences.moods:
+                    if mood.lower() in mood_adjustments:
+                        valence_target = mood_adjustments[mood.lower()]
+                        break
                 
-                # Valence (happiness) matching
-                valence_diff = abs(track.valence - preferences.valence_level)
+                valence_diff = abs(track.valence - valence_target)
                 score += (1 - valence_diff) * 0.25
                 
-                # Tempo preference matching
+                # Enhanced tempo preference matching
                 tempo_score = 0.0
                 if preferences.tempo_preference == 'slow' and track.tempo < 90:
                     tempo_score = 0.8
@@ -1384,23 +1662,61 @@ Only return valid JSON, no explanations."""
                 else:
                     tempo_score = 0.4
                 
-                score += tempo_score * 0.15
+                score += tempo_score * 0.2
             
-            # Artist preference bonus
-            for artist in track.artists:
-                if artist.lower() in [a.lower() for a in preferences.artists_similar_to]:
-                    score += 0.3
+            # GENRE MATCHING (Enhanced)
+            genre_score = 0.0
+            track_name_lower = track.name.lower()
+            track_artists_lower = [a.lower() for a in track.artists]
+            
+            for genre in preferences.genres:
+                genre_lower = genre.lower()
+                # Check track text for genre keywords
+                if (genre_lower in track_name_lower or 
+                    any(genre_lower in artist for artist in track_artists_lower)):
+                    genre_score += 0.3
                     break
             
-            # Recency bonus (smaller for cultural queries)
+            score += genre_score
+            
+            # ARTIST PREFERENCE MATCHING
+            for artist in track.artists:
+                if artist.lower() in [a.lower() for a in preferences.artists_similar_to]:
+                    score += 0.4
+                    break
+            
+            # RECENCY BONUS (Cultural music gets smaller bonus)
             recency_weight = 0.05 if preferences.language_preference else 0.1
-            if track.release_date and ('2023' in track.release_date or '2024' in track.release_date):
-                score += recency_weight
+            if track.release_date:
+                if '2024' in track.release_date or '2025' in track.release_date:
+                    score += recency_weight * 1.5
+                elif '2023' in track.release_date:
+                    score += recency_weight
+                elif any(year in track.release_date for year in ['2021', '2022']):
+                    score += recency_weight * 0.5
+            
+            # MOOD CONTEXT SCORING
+            if preferences.activity_context:
+                context_boost = 0.0
+                context = preferences.activity_context.lower()
+                
+                if context in ['workout', 'gym'] and track.energy > 0.7:
+                    context_boost = 0.2
+                elif context in ['study', 'focus'] and track.energy < 0.4:
+                    context_boost = 0.2
+                elif context in ['romantic', 'date'] and track.valence > 0.6:
+                    context_boost = 0.2
+                elif context in ['party', 'dance'] and track.energy > 0.8:
+                    context_boost = 0.2
+                
+                score += context_boost
             
             scored_tracks.append((track, min(score, 1.0)))
         
-        # Sort by ranking score
+        # Sort by enhanced ranking score
         scored_tracks.sort(key=lambda x: x[1], reverse=True)
+        
+        print(f"🎯 Enhanced ranking: Top track score = {scored_tracks[0][1]:.3f}" if scored_tracks else "No tracks scored")
         return scored_tracks[:top_k]
 
     def embedding_recommendations(self, tracks: List[Track], query: str, top_k: int = 10) -> List[Tuple[Track, float]]:
@@ -1579,18 +1895,120 @@ Only return valid JSON, no explanations."""
                 if any(indicator in track_text for indicator in non_english_indicators):
                     continue
             
-            # STRICT HINDI LANGUAGE FILTERING (keyword-based, no artist name blacklists)
+            # ENHANCED HINDI LANGUAGE FILTERING (artist-based + keyword-based)
             if not specific_artist and preferences.language_preference and preferences.language_preference.lower() == 'hindi':
                 track_text = f"{track.name} {' '.join(track.artists)} {track.album}".lower()
                 
-                # Require clear Hindi indicators
+                # Check for known Hindi/Bollywood artists first (most reliable)
+                hindi_artists = [
+                    'arijit singh', 'shreya ghoshal', 'atif aslam', 'rahat fateh ali khan', 
+                    'armaan malik', 'alka yagnik', 'sonu nigam', 'udit narayan', 'kumar sanu',
+                    'lata mangeshkar', 'asha bhosle', 'kishore kumar', 'mohammed rafi',
+                    'k.k.', 'kk', 'tulsi kumar', 'jubin nautiyal', 'darshan raval',
+                    'neha kakkar', 'dhvani bhanushali', 'asees kaur', 'palak muchhal'
+                ]
+                
+                # Check if any artist matches known Hindi artists
+                is_hindi_artist = False
+                for artist in track.artists:
+                    artist_lower = artist.lower()
+                    for hindi_artist in hindi_artists:
+                        if hindi_artist in artist_lower or artist_lower in hindi_artist:
+                            is_hindi_artist = True
+                            break
+                    if is_hindi_artist:
+                        break
+                
+                # Also check for clear Hindi/Bollywood indicators
                 hindi_indicators = ['hindi', 'bollywood', 'hindustani']
-                if not any(indicator in track_text for indicator in hindi_indicators):
+                has_hindi_keywords = any(indicator in track_text for indicator in hindi_indicators)
+                
+                # Accept if either known Hindi artist OR has Hindi keywords
+                if not (is_hindi_artist or has_hindi_keywords):
                     continue
                 
-                # Exclude clear Nepali markers
+                # Exclude clear Nepali markers when searching for Hindi content
                 nepali_markers = ['nepali', 'nepal']
                 if any(marker in track_text for marker in nepali_markers):
+                    continue
+                    
+                # Also exclude English-only content indicators for Hindi requests
+                english_only_indicators = ['english', 'american', 'british', 'pop', 'rock', 'jazz', 'blues']
+                track_artists_text = ' '.join(track.artists).lower()
+                if (not is_hindi_artist and not has_hindi_keywords and 
+                    any(indicator in track_text for indicator in english_only_indicators)):
+                    continue
+            
+            # ENHANCED NEPALI LANGUAGE FILTERING (artist-based + keyword-based)
+            if not specific_artist and preferences.language_preference and preferences.language_preference.lower() == 'nepali':
+                track_text = f"{track.name} {' '.join(track.artists)} {track.album}".lower()
+                
+                # Check for known Nepali artists first (most reliable)
+                nepali_artists = [
+                    'narayan gopal', 'aruna lama', 'bipul chettri', 'prem dhoj pradhan',
+                    'deepak bajracharya', 'ram krishna dhakal', 'pramod kharel', 'nhyoo bajracharya',
+                    'deepak jangam', 'kunti moktan', 'tara devi', 'udit narayan jha',
+                    'rajesh payal rai', 'melina rai', 'anju panta', 'komal oli',
+                    'sugam pokharel', 'swoopna suman', 'hemant rana', 'bartika eam rai',
+                    'sajjan raj vaidya', 'albatross', 'the edge band', 'mukti and revival'
+                ]
+                
+                # Check if any artist matches known Nepali artists
+                is_nepali_artist = False
+                for artist in track.artists:
+                    artist_lower = artist.lower()
+                    for nepali_artist in nepali_artists:
+                        if nepali_artist in artist_lower or artist_lower in nepali_artist:
+                            is_nepali_artist = True
+                            break
+                    if is_nepali_artist:
+                        break
+                
+                # Also check for clear Nepali indicators
+                nepali_indicators = ['nepali', 'nepal']
+                has_nepali_keywords = any(indicator in track_text for indicator in nepali_indicators)
+                
+                # Accept if either known Nepali artist OR has Nepali keywords
+                if not (is_nepali_artist or has_nepali_keywords):
+                    continue
+                
+                # Exclude clear Hindi/Bollywood markers when searching for Nepali content
+                hindi_bollywood_markers = ['hindi', 'bollywood', 'hindustani']
+                if any(marker in track_text for marker in hindi_bollywood_markers):
+                    continue
+                    
+                # Also exclude tracks by known Hindi artists from Nepali results
+                track_artists_text = ' '.join(track.artists).lower()
+                hindi_artist_exclusions = [
+                    'arijit singh', 'shreya ghoshal', 'atif aslam', 'rahat fateh ali khan',
+                    'armaan malik', 'alka yagnik', 'sonu nigam', 'lata mangeshkar'
+                ]
+                if any(hindi_artist in track_artists_text for hindi_artist in hindi_artist_exclusions):
+                    continue
+            
+            # ENHANCED ENGLISH LANGUAGE FILTERING
+            if not specific_artist and preferences.language_preference and preferences.language_preference.lower() == 'english':
+                track_text = f"{track.name} {' '.join(track.artists)} {track.album}".lower()
+                
+                # Exclude ALL non-English content indicators
+                non_english_indicators = [
+                    'bollywood', 'hindi', 'hindustani', 'korean', 'kpop', 'k-pop', 'japanese', 'jpop', 'j-pop',
+                    'chinese', 'mandarin', 'cantopop', 'cpop', 'c-pop', 'arabic', 'spanish', 
+                    'french', 'german', 'nepali', 'nepal', 'punjabi', 'tamil', 'bengali', 'urdu', 
+                    'persian', 'turkish', 'russian', 'portuguese', 'italian'
+                ]
+                
+                # Also exclude tracks by known non-English artists
+                track_artists_text = ' '.join(track.artists).lower()
+                non_english_artists = [
+                    'narayan gopal', 'aruna lama', 'bipul chettri', 'arijit singh', 'shreya ghoshal',
+                    'lata mangeshkar', 'kishore kumar', 'rahat fateh', 'bts', 'blackpink', 'twice',
+                    'atif aslam', 'armaan malik', 'sonu nigam'
+                ]
+                
+                # Skip if any non-English indicator found
+                if (any(indicator in track_text for indicator in non_english_indicators) or
+                    any(artist in track_artists_text for artist in non_english_artists)):
                     continue
             
             filtered_tracks.append((track_id, score))
@@ -1741,17 +2159,21 @@ Only return valid JSON, no explanations."""
                 primary_artist = track.artists[0] if track.artists else 'Unknown'
                 normalized_artist = primary_artist.lower().strip()
                 
-                # Check for artist diversity (strict enforcement)
+                # Check for artist diversity (more reasonable enforcement)
                 artist_already_used = False
                 for seen_variant in seen_artist_variants:
-                    # Check for similar artist names (handle variations like "Artist" vs "Artist feat. Someone")
-                    if (seen_variant in normalized_artist or normalized_artist in seen_variant or 
-                        any(word in seen_variant.split() for word in normalized_artist.split() if len(word) > 3)):
+                    # Check for exact matches or very similar names
+                    if (seen_variant == normalized_artist or 
+                        # Handle featuring patterns more precisely
+                        (seen_variant in normalized_artist and ("feat" in normalized_artist or "featuring" in normalized_artist)) or
+                        (normalized_artist in seen_variant and ("feat" in seen_variant or "featuring" in seen_variant))):
                         artist_already_used = True
                         break
                 
                 # Only allow duplicate artists if we have fewer than minimum recommendations
-                if not artist_already_used or len(final_recommendations) < 2:
+                # Use the requested count or at least 3 as the minimum threshold
+                min_recommendations = max(requested_count or 3, 3)
+                if not artist_already_used or len(final_recommendations) < min_recommendations:
                     final_recommendations.append(track)
                     seen_artists.add(primary_artist)
                     seen_artist_variants.add(normalized_artist)
@@ -2042,7 +2464,7 @@ Only return valid JSON, no explanations."""
                     )
 
                 # If we have features, continue with the normal seed-based recommendation flow
-                final_count = requested_count or 5  # Default to 5 songs for similarity searches
+                final_count = requested_count or 3  # Default to 3 songs for similarity searches
                 
                 print(f"Getting {final_count} tracks similar to '{seed_track_name}'...")
                 # Get similar songs from Spotify using the Recommendations API
@@ -2405,236 +2827,425 @@ Only return valid JSON, no explanations."""
     def format_enhanced_results(self, tracks: List[Track], metrics: Dict[str, float], 
                               preferences: UserPreferences, existing_songs: List[str] = None, 
                               specific_artist: str = None, requested_count: int = None, analyzed_song: str = None, seed_track: Dict = None) -> str:
-        """Enhanced formatting with structured output and language information."""
+        """Enhanced formatting with superior structure, accuracy metrics, and cultural intelligence."""
         if not tracks:
             if specific_artist:
                 if requested_count:
-                    return f"I couldn't find {requested_count} tracks by '{specific_artist}'. Please check the artist name and try again!"
-                return f"I couldn't find tracks by '{specific_artist}'. Please check the artist name and try again!"
-            return "I couldn't find tracks matching your preferences. Try a different query or let me know what specific culture/genre interests you!"
+                    return f"❌ **No Results Found**\n\nI couldn't find {requested_count} tracks by '{specific_artist}'.\n\n**Try:**\n• Check the spelling of the artist name\n• Use the artist's most common name\n• Try a more general request"
+                return f"❌ **No Results Found**\n\nI couldn't find tracks by '{specific_artist}'. Please verify the artist name and try again!"
+            return "❌ **No Results Found**\n\nI couldn't find tracks matching your preferences. Try being more specific about genre, language, or mood."
         
-        result = "**Enhanced Music Recommendations**\n"
-        result += "=" * 50 + "\n\n"
+        result = "🎵 **Enhanced Music Recommendations**\n"
+        result += "=" * 60 + "\n\n"
         
-        # Show analysis summary with strategy indication
-        result += "**Analysis Summary:**\n"
+        # ENHANCED ANALYSIS SUMMARY with Intelligence Indicators
+        result += "📊 **AI Analysis Summary:**\n"
         if seed_track:
-            # This is a song-similarity recommendation
-            final_count = requested_count or 5
-            result += f"   **Strategy**: Song-Similarity Search ({final_count} songs similar to '{seed_track['name']}')\n"
+            final_count = requested_count or 3
+            result += f"   🎯 **Strategy**: Song-Similarity AI ({final_count} songs similar to '{seed_track['name']}')\n"
+            result += f"   🎼 **Seed Track**: '{seed_track['name']}' by {seed_track['artist']}\n"
         elif specific_artist:
             if requested_count:
-                result += f"   **Strategy**: Artist-Specific Search ({requested_count} songs by {specific_artist})\n"
+                result += f"   🎯 **Strategy**: Artist-Focused Search ({requested_count} songs by {specific_artist})\n"
             else:
-                result += f"   **Strategy**: Artist-Specific Search (All available tracks by {specific_artist})\n"
+                result += f"   🎯 **Strategy**: Artist Collection (All available tracks by {specific_artist})\n"
+            result += f"   🎤 **Target Artist**: {specific_artist}\n"
         else:
             final_count = requested_count or 3
-            result += f"   **Strategy**: General Hybrid Recommendations ({final_count} diverse tracks)\n"
+            result += f"   🎯 **Strategy**: Hybrid AI Recommendations ({final_count} diverse tracks)\n"
             
+        # Enhanced preference display
         if preferences.language_preference:
-            result += f"   **Language**: {preferences.language_preference.title()}\n"
+            result += f"   🌍 **Language/Culture**: {preferences.language_preference.title()}\n"
         if preferences.genres:
-            result += f"   **Genres**: {', '.join(preferences.genres[:3])}\n"
-        # Only show mood if it was explicitly requested in the query
-        # This is determined by our updated interpret_query_with_llm method
+            top_genres = preferences.genres[:3]
+            result += f"   🎸 **Genres**: {', '.join([g.title() for g in top_genres])}\n"
+        
+        # Intelligent mood display (only show if explicitly requested)
         if preferences.moods and preferences.moods != ['neutral']:
-            # Check if any mood is explicitly mentioned in the preferences (not derived from audio features)
             explicit_moods = [m for m in preferences.moods if m.lower() not in ['neutral']]
             if explicit_moods:
-                result += f"   **Mood**: {', '.join(explicit_moods[:2])}\n"
+                mood_emojis = {
+                    'happy': '😊', 'sad': '😢', 'energetic': '⚡', 'romantic': '💕',
+                    'calm': '😌', 'party': '🎉', 'emotional': '💔', 'peaceful': '☮️',
+                    'motivational': '💪', 'nostalgic': '🌅'
+                }
+                mood_display = []
+                for mood in explicit_moods[:2]:
+                    emoji = mood_emojis.get(mood.lower(), '🎵')
+                    mood_display.append(f"{emoji} {mood.title()}")
+                result += f"   🎭 **Mood**: {', '.join(mood_display)}\n"
+                
         if preferences.activity_context:
-            result += f"   **Context**: {preferences.activity_context.replace('_', ' ').title()}\n"
+            context_emojis = {
+                'workout': '💪', 'study': '📚', 'party': '🎉', 'romantic': '💕',
+                'sleep': '😴', 'meditation': '🧘', 'driving': '🚗', 'morning': '🌅',
+                'devotional': '🕉️', 'wedding': '💒', 'celebration': '🎊'
+            }
+            context_clean = preferences.activity_context.replace('_', ' ').title()
+            emoji = context_emojis.get(preferences.activity_context.lower(), '🎵')
+            result += f"   🎬 **Context**: {emoji} {context_clean}\n"
         
-        # Input-based recommendation count
+        # Enhanced recommendation count with accuracy indicators
         rec_count = len(tracks)
         if analyzed_song:
-            # Special case: We analyzed an unknown song and found similar ones
-            result += f"   **Based on Analysis**: '{analyzed_song}' → Recommending {rec_count} similar songs\n"
+            result += f"   🧠 **AI Analysis**: '{analyzed_song}' → {rec_count} similar recommendations\n"
         elif existing_songs:
-            result += f"   **Input Songs**: {len(existing_songs)} provided → Recommending {rec_count} additional songs\n"
+            result += f"   📝 **Input**: {len(existing_songs)} existing songs → {rec_count} new discoveries\n"
         else:
             if specific_artist:
                 if requested_count:
-                    result += f"   **Specific Request**: Found {rec_count}/{requested_count} songs by/featuring {specific_artist}\n"
+                    success_rate = min(100, (rec_count / requested_count) * 100)
+                    result += f"   ✅ **Success Rate**: {rec_count}/{requested_count} songs found ({success_rate:.0f}%)\n"
                 else:
-                    result += f"   **Artist Focus**: Recommending {rec_count} songs by/featuring {specific_artist}\n"
+                    result += f"   🎵 **Collection**: {rec_count} songs by/featuring {specific_artist}\n"
             else:
-                result += f"   **New Discovery**: Recommending {rec_count} songs\n"
+                result += f"   🎁 **Discovery**: {rec_count} personalized recommendations\n"
+        
         result += "\n"
         
-        # Strict filtering for Hindi/Bollywood requests
-        strict_hindi = False
-        if preferences.language_preference and preferences.language_preference.strip().lower() == 'hindi':
-            strict_hindi = True
-        if preferences.genres and any(g.lower() == 'bollywood' for g in preferences.genres):
-            strict_hindi = True
-
+        # ADVANCED QUALITY FILTERING with Cultural Intelligence
         filtered_tracks = []
+        quality_summary = {"high": 0, "medium": 0, "low": 0}
+        cultural_matches = 0
+        
         for track in tracks:
-            track_language = self._determine_track_language(track, preferences.language_preference).strip().lower()
-            primary_genre = self._determine_primary_genre(track, preferences.genres).strip().lower()
-            if strict_hindi:
-                # Only allow tracks where language is exactly 'hindi' (case-insensitive)
-                if track_language == 'hindi' or primary_genre == 'bollywood':
+            # Enhanced language detection
+            track_language = self._determine_track_language_improved(track, preferences.language_preference)
+            primary_genre = self._determine_primary_genre(track, preferences.genres)
+            
+            # Cultural accuracy check
+            cultural_match = False
+            if preferences.language_preference:
+                expected_lang = preferences.language_preference.lower()
+                if expected_lang in track_language.lower():
+                    cultural_match = True
+                    cultural_matches += 1
+            
+            # Quality assessment
+            if track.popularity >= 60:
+                quality_summary["high"] += 1
+            elif track.popularity >= 30:
+                quality_summary["medium"] += 1
+            else:
+                quality_summary["low"] += 1
+            
+            # Apply strict filtering only for specific language requests
+            if preferences.language_preference and preferences.language_preference.lower() == 'hindi':
+                if 'hindi' in track_language.lower() or 'bollywood' in primary_genre.lower():
                     filtered_tracks.append(track)
             else:
                 filtered_tracks.append(track)
-
+        
+        # ENHANCED RECOMMENDATIONS DISPLAY
         if seed_track:
-            result += f"**Songs Similar to '{seed_track['name']}' by {seed_track['artist']}:**\n\n"
+            result += f"🎼 **Songs Similar to '{seed_track['name']}' by {seed_track['artist']}:**\n\n"
         elif specific_artist:
-            result += f"**Songs by/featuring {specific_artist}:**\n\n"
+            result += f"🎤 **Songs by/featuring {specific_artist}:**\n\n"
         else:
-            result += "**Structured Recommendations:**\n\n"
-
-        # Produce structured recommendations in the user's requested format.
-        # Use improved track language detection and fall back to 'Unknown' when ambiguous.
+            result += "🎵 **AI-Curated Recommendations:**\n\n"
+        
+        # Display tracks with enhanced formatting
         for i, track in enumerate(filtered_tracks, 1):
             artists_str = ", ".join(track.artists)
-            # Use improved language detection helper (prefers explicit metadata)
             track_language = self._determine_track_language_improved(track, preferences.language_preference)
             primary_genre = self._determine_primary_genre(track, preferences.genres)
-            collaboration_indicator = ""
-            if specific_artist and len(track.artists) > 1:
-                collaboration_indicator = " (Collab)"
-
-            # Format exactly as requested by the user
-            result += f"**{i}. {track.name}**\n"
-            result += f"Artist: {artists_str}\n"
-            result += f"Genre: {primary_genre}\n"
-            result += f"Language: {track_language}\n"
-            result += f"Album: {track.album}\n"
-            # Popularity as numeric and small bar
-            popularity_bar = "●" * (track.popularity // 20) + "○" * (5 - track.popularity // 20)
-            result += f"Popularity: {popularity_bar} ({track.popularity}/100)\n"
-            duration_min = track.duration_ms // 60000
-            duration_sec = (track.duration_ms // 1000) % 60
-            result += f"Duration: {duration_min}:{duration_sec:02d}\n"
-            result += f"Spotify: {track.external_url}\n"
+            
+            # Quality indicator
+            if track.popularity >= 70:
+                quality_icon = "🏆"  # Premium quality
+            elif track.popularity >= 50:
+                quality_icon = "⭐"  # High quality
+            elif track.popularity >= 30:
+                quality_icon = "✨"  # Good quality
+            else:
+                quality_icon = "🎵"  # Standard
+            
+            # Collaboration indicator
+            collab_icon = " 🤝" if specific_artist and len(track.artists) > 1 else ""
+            
+            # Enhanced track display
+            result += f"{quality_icon} **{i}. {track.name}**{collab_icon}\n"
+            result += f"   🎤 **Artist**: {artists_str}\n"
+            result += f"   🎸 **Genre**: {primary_genre}\n"
+            result += f"   🌍 **Language**: {track_language}\n"
+            result += f"   💿 **Album**: {track.album}\n"
+            
+            # Enhanced popularity display
+            popularity_dots = "●" * (track.popularity // 20) + "○" * (5 - track.popularity // 20)
+            if track.popularity >= 80:
+                pop_desc = "Trending Hit"
+            elif track.popularity >= 60:
+                pop_desc = "Popular"
+            elif track.popularity >= 40:
+                pop_desc = "Well-Known"
+            elif track.popularity >= 20:
+                pop_desc = "Emerging"
+            else:
+                pop_desc = "Discovery"
+            
+            result += f"   📈 **Popularity**: {popularity_dots} ({track.popularity}/100 - {pop_desc})\n"
+            
+            # Duration with emoji
+            duration_min = track.duration_ms // 60000 if track.duration_ms else 3
+            duration_sec = (track.duration_ms // 1000) % 60 if track.duration_ms else 30
+            result += f"   ⏱️ **Duration**: {duration_min}:{duration_sec:02d}\n"
+            
+            # Links with proper formatting
+            result += f"   🔗 **Listen**: [Spotify]({track.external_url})\n"
             if track.preview_url:
-                result += f"Preview: {track.preview_url}\n"
+                result += f"   🎧 **Preview**: [30s Sample]({track.preview_url})\n"
             result += "\n"
-        # If strict Hindi/Bollywood and no tracks left, show a message
-        if strict_hindi and not filtered_tracks:
-            result += "❌ No Hindi/Bollywood tracks found matching your request. Please try a different query.\n"
         
-        # Enhanced Quality Metrics
-        result += "📈 **Quality Metrics:**\n"
+        # Handle case where strict filtering removed all tracks
+        if preferences.language_preference and preferences.language_preference.lower() == 'hindi' and not filtered_tracks:
+            result += "❌ **No Hindi/Bollywood matches found**\n\n"
+            result += "The search returned tracks but none matched Hindi/Bollywood criteria.\n"
+            result += "Try: 'Bollywood romantic songs' or 'Hindi songs by Arijit Singh'\n\n"
+        
+        # ADVANCED QUALITY METRICS with AI Intelligence
+        result += "📊 **Advanced Quality Analysis:**\n"
+        
         if seed_track:
             # Song similarity metrics
-            result += f"   🎵 **Seed Track**: '{seed_track['name']}' by {seed_track['artist']}\n"
-            result += f"   🎨 **Artist Diversity**: {len(set(artist for track in tracks for artist in track.artists))} different artists\n"
+            result += f"   🎯 **Similarity Engine**: Audio feature matching + Cultural context\n"
+            result += f"   🎨 **Artist Variety**: {len(set(artist for track in filtered_tracks for artist in track.artists))} unique artists\n"
         elif specific_artist:
-            result += f"   � **Artist Focus**: 100% tracks by/featuring {specific_artist}\n"
-            collaboration_count = sum(1 for track in tracks if len(track.artists) > 1)
-            if collaboration_count > 0:
-                result += f"   🤝 **Collaborations**: {collaboration_count}/{len(tracks)} tracks feature other artists\n"
+            # Artist-specific metrics
+            result += f"   🎤 **Artist Focus**: 100% tracks by/featuring {specific_artist}\n"
+            collab_count = sum(1 for track in filtered_tracks if len(track.artists) > 1)
+            if collab_count > 0:
+                result += f"   🤝 **Collaborations**: {collab_count}/{len(filtered_tracks)} tracks feature other artists\n"
         else:
-            result += f"   �🎨 **Artist Diversity**: {metrics.get('artist_diversity', 0):.2f} (Perfect: 1.0)\n"
+            # Diversity metrics
+            unique_artists = len(set(artist for track in filtered_tracks for artist in track.artists))
+            result += f"   🎨 **Artist Diversity**: {unique_artists} different artists ({metrics.get('artist_diversity', 0):.2f} diversity score)\n"
         
-        result += f"   **Avg Popularity**: {metrics.get('avg_popularity', 0):.1f}/100\n"
-        result += f"   **Recent Content**: {metrics.get('novelty', 0):.1%}\n"
+        # Quality distribution
+        total_tracks = sum(quality_summary.values())
+        if total_tracks > 0:
+            high_pct = (quality_summary["high"] / total_tracks) * 100
+            result += f"   ⭐ **Quality Distribution**: {quality_summary['high']} premium, {quality_summary['medium']} popular, {quality_summary['low']} emerging\n"
+            result += f"   🏆 **Premium Rate**: {high_pct:.0f}% high-quality tracks\n"
         
-        if preferences.language_preference and preferences.language_preference.lower() == 'english':
-            result += f"   **Language Filter**: English-only content verified\n"
-        elif preferences.language_preference:
-            result += f"   **Cultural Focus**: {preferences.language_preference.title()} music prioritized\n"
+        # Cultural accuracy
+        if preferences.language_preference and cultural_matches > 0:
+            cultural_accuracy = (cultural_matches / len(tracks)) * 100 if tracks else 0
+            result += f"   � **Cultural Accuracy**: {cultural_matches}/{len(tracks)} tracks match {preferences.language_preference.title()} ({cultural_accuracy:.0f}%)\n"
         
-        # Closing message
-        if seed_track:
-            result += f"\nHere are {len(tracks)} diverse tracks with similar features to '{seed_track['name']}' by {seed_track['artist']}!"
-        elif specific_artist:
-            if requested_count:
-                if len(tracks) == requested_count:
-                    result += f"\nPerfect! Found all {requested_count} requested tracks by/featuring {specific_artist}!"
-                else:
-                    result += f"\nFound {len(tracks)}/{requested_count} requested tracks by/featuring {specific_artist}!"
-                    if len(tracks) < requested_count:
-                        result += f" (Limited by available content)"
-            elif existing_songs:
-                result += f"\nBased on your {len(existing_songs)} input songs, here are {len(tracks)} tracks by/featuring {specific_artist}!"
-            else:
-                result += f"\nHere are {len(tracks)} amazing tracks by/featuring {specific_artist}!"
-                
-            if any(len(track.artists) > 1 for track in tracks):
-                result += f" Including collaborations!"
-        else:
-            if existing_songs:
-                result += f"\nBased on your {len(existing_songs)} input songs, here are {len(tracks)} carefully selected additions!"
-            else:
-                result += f"\nDiscovered {len(tracks)} amazing tracks just for you!"
+        # Audio feature insights (if available)
+        if filtered_tracks and hasattr(filtered_tracks[0], 'energy'):
+            avg_energy = sum(track.energy for track in filtered_tracks if hasattr(track, 'energy')) / len(filtered_tracks)
+            avg_valence = sum(track.valence for track in filtered_tracks if hasattr(track, 'valence')) / len(filtered_tracks)
             
-        result += "\n\n*Powered by Enhanced Cultural AI with Artist Diversity & Language Filtering*"
+            energy_desc = "High Energy" if avg_energy > 0.7 else "Medium Energy" if avg_energy > 0.4 else "Low Energy"
+            valence_desc = "Positive" if avg_valence > 0.6 else "Neutral" if avg_valence > 0.4 else "Melancholic"
+            
+            result += f"   ⚡ **Energy Profile**: {energy_desc} ({avg_energy:.2f}), {valence_desc} mood ({avg_valence:.2f})\n"
+        
+        # Recommendation freshness
+        if 'novelty' in metrics:
+            freshness_pct = metrics['novelty'] * 100
+            result += f"   � **Freshness**: {freshness_pct:.0f}% recent releases (2023-2025)\n"
+        
+        # Average popularity
+        if 'avg_popularity' in metrics:
+            result += f"   📈 **Average Popularity**: {metrics['avg_popularity']:.0f}/100\n"
+        
+        result += "\n"
+        
+        # ENHANCED PERSONALIZATION TIPS
+        result += "💡 **Personalization Tips:**\n"
+        if specific_artist:
+            result += f"   • Try: 'Songs similar to [specific song] by {specific_artist}' for more targeted results\n"
+            result += f"   • Explore: '{specific_artist} collaborations' or '{specific_artist} duets'\n"
+        else:
+            if preferences.language_preference:
+                result += f"   • For more {preferences.language_preference.title()} music: Try specific artists or subgenres\n"
+            if preferences.moods:
+                result += f"   • Mood-based discovery: Add time context like 'morning {preferences.moods[0]} songs'\n"
+            result += "   • Mix cultures: Try 'Korean songs similar to Bollywood' for fusion discovery\n"
+            result += "   • Get specific: 'Nepali folk songs for meditation' or 'Spanish dance music for party'\n"
+        
+        result += "\n" + "=" * 60 + "\n"
+        result += "🎵 **Enjoy your personalized music journey!** 🎵"
         
         return result
 
     def _determine_track_language_improved(self, track: Track, preference_lang: Optional[str] = None) -> str:
-        """Improved language detection for a track.
-
-        Strategy:
-        - If a user preference language is provided, prefer that only when we can verify via metadata.
-        - Check explicit Spotify metadata: track name, artist names, album name for clear indicators.
-        - Use Unicode script heuristics as a fallback (e.g., Devanagari, Hangul, Kana) to detect Nepali/Hindi/Korean/Japanese.
-        - If no strong signal, return 'Unknown'. Never guess based solely on genre/album names.
-        """
-        # 1) If preference is provided and matches explicit artist/track tokens, return it
+        """Enhanced language detection with cultural intelligence and metadata analysis."""
+        # If preference is provided and explicitly appears in metadata, use it
         if preference_lang:
             pref = preference_lang.strip().lower()
             track_text = f"{track.name} {' '.join(track.artists)} {track.album}".lower()
-            # Only accept the preference if it appears in metadata (avoid blind assumption)
             if pref in track_text:
                 return pref.title()
 
-        # 2) Check explicit language/artist indicators in metadata
+        # Advanced language detection based on artist and metadata
         track_text = f"{track.name} {' '.join(track.artists)} {track.album}".lower()
-        explicit_map = {
-            'nepali': ['nepali', 'nepal', 'nepaltha', 'narayan gopal', 'bipul chettri', 'nepathya', 'sugam pokhrel', 'bartika', 'sushant kc'],
-            'hindi': ['hindi', 'bollywood', 'arijit singh', 'lata mangeshkar', 'kishore kumar', 'shreya ghoshal', 'pritam'],
-            'korean': ['k-pop', 'kpop', 'korean', 'bts', 'blackpink', 'iu', 'twice'],
-            'japanese': ['j-pop', 'jpop', 'utada hikaru', 'one ok rock', 'anime'],
-            'spanish': ['spanish', 'latino', 'reggaeton', 'manu chao', 'gipsy kings'],
-            'chinese': ['mandarin', 'c-pop', 'jay chou', 'faye wong'],
-            'arabic': ['arabic', 'um kulthum', 'fairuz'],
-            'french': ['french', 'chanson', 'stromae'],
-            'portuguese': ['bossa nova', 'samba', 'brazilian', 'portuguese']
+        
+        # Comprehensive language mapping with cultural intelligence
+        language_indicators = {
+            'nepali': [
+                # Artists
+                'narayan gopal', 'aruna lama', 'bipul chettri', 'sugam pokhrel', 
+                'pramod kharel', 'raju lama', 'ani choying', 'phatteman',
+                'bartika eam rai', 'deepak bajracharya', 'arun thapa', 'tara devi',
+                # Keywords
+                'nepali', 'nepal', 'himalayan', 'kathmandu', 'lok dohori', 'adhunik geet'
+            ],
+            'hindi': [
+                # Artists
+                'arijit singh', 'shreya ghoshal', 'lata mangeshkar', 'kishore kumar',
+                'atif aslam', 'rahat fateh', 'armaan malik', 'darshan raval',
+                'k.k.', 'sonu nigam', 'shaan', 'jubin nautiyal', 'mohammed rafi',
+                # Keywords
+                'bollywood', 'hindi', 'playback', 'mumbai', 'filmi'
+            ],
+            'korean': [
+                # Artists
+                'bts', 'blackpink', 'twice', 'red velvet', 'exo', 'iu',
+                'girls generation', 'itzy', 'aespa', 'newjeans',
+                # Keywords
+                'k-pop', 'kpop', 'korean', 'seoul', 'hallyu'
+            ],
+            'japanese': [
+                # Artists
+                'utada hikaru', 'mr.children', 'one ok rock', 'yui', 'aimyon',
+                # Keywords
+                'j-pop', 'jpop', 'japanese', 'anime', 'tokyo'
+            ],
+            'spanish': [
+                # Artists
+                'jesse & joy', 'manu chao', 'gipsy kings', 'shakira', 'mana',
+                # Keywords
+                'spanish', 'latino', 'latin', 'reggaeton', 'hispanic'
+            ],
+            'chinese': [
+                # Artists
+                'jay chou', 'faye wong', 'teresa teng',
+                # Keywords
+                'chinese', 'mandarin', 'c-pop', 'cpop', 'cantonese'
+            ],
+            'english': [
+                # Common English indicators
+                'feat.', 'featuring', 'remix', 'live', 'edition', 'version',
+                'featuring', 'with', 'deluxe'
+            ]
         }
 
-        for lang, indicators in explicit_map.items():
-            for token in indicators:
-                if token in track_text:
-                    return lang.title()
-
-        # 3) Unicode script heuristics on track/artist names
-        combined = f"{track.name} {' '.join(track.artists)} {track.album}"
-        # Check for Devanagari (used by Hindi and Nepali)
+        # Find best language match
+        for language, indicators in language_indicators.items():
+            for indicator in indicators:
+                if indicator in track_text:
+                    return language.title()
+        
+        # Unicode script detection as fallback
+        combined = f"{track.name} {' '.join(track.artists)}"
+        
+        # Devanagari (Hindi/Nepali)
         if re.search(r'[\u0900-\u097F]', combined):
-            # If Nepali indicators present, prefer Nepali; otherwise, return 'Hindi' if uncertain
-            if any(tok in track_text for tok in ['nepali', 'nepal', 'nepathya', 'bipul']):
+            # Distinguish between Hindi and Nepali if possible
+            if any(tok in track_text for tok in ['nepali', 'nepal', 'kathmandu']):
                 return 'Nepali'
-            # We cannot reliably distinguish Devanagari language without metadata: return 'Unknown'
-            return 'Unknown'
-
-        # Hangul for Korean
+            return 'Hindi'
+        
+        # Hangul (Korean)
         if re.search(r'[\uAC00-\uD7AF]', combined):
             return 'Korean'
-
-        # Hiragana/Katakana for Japanese
+        
+        # Hiragana/Katakana (Japanese)
         if re.search(r'[\u3040-\u30FF]', combined):
             return 'Japanese'
-
-        # CJK Unified Ideographs for Chinese
+        
+        # CJK Ideographs (Chinese)
         if re.search(r'[\u4E00-\u9FFF]', combined):
             return 'Chinese'
-
-        # Latin script doesn't guarantee English; avoid guessing. If explicit english indicators exist, return English
-        if re.search(r'[A-Za-z]', combined):
-            # Look for strong English indicators like 'feat.', 'ft.', or common English stopwords combined with artist names
-            english_indicators = [' feat', ' ft.', 'feat.', 'remix', 'live', 'edition']
-            if any(ind in combined.lower() for ind in english_indicators):
-                return 'English'
-
-        # 4) Unable to determine confidently
+        
+        # Default to English for Latin script if no other indicators
+        if re.search(r'^[A-Za-z0-9\s&\'\-\(\)\.]+$', combined):
+            return 'English'
+        
         return 'Unknown'
+
+    def _determine_primary_genre(self, track: Track, preference_genres: List[str] = None) -> str:
+        """Determine primary genre with enhanced cultural awareness."""
+        track_text = f"{track.name} {' '.join(track.artists)} {track.album}".lower()
+        
+        # If preference genres are specified, check for matches first
+        if preference_genres:
+            for genre in preference_genres:
+                genre_lower = genre.lower()
+                if genre_lower in track_text:
+                    return genre.title()
+        
+        # Comprehensive genre detection with cultural intelligence
+        genre_indicators = {
+            'bollywood': [
+                'bollywood', 'playback', 'filmi', 'arijit singh', 'shreya ghoshal',
+                'lata mangeshkar', 'kishore kumar', 'pritam'
+            ],
+            'k-pop': [
+                'k-pop', 'kpop', 'korean pop', 'bts', 'blackpink', 'twice'
+            ],
+            'nepali folk': [
+                'nepali', 'himalayan', 'lok dohori', 'adhunik geet', 'narayan gopal'
+            ],
+            'devotional': [
+                'bhajan', 'kirtan', 'devotional', 'spiritual', 'mantra'
+            ],
+            'latin': [
+                'reggaeton', 'salsa', 'bachata', 'latin', 'spanish'
+            ],
+            'pop': [
+                'pop', 'chart', 'hit', 'mainstream'
+            ],
+            'rock': [
+                'rock', 'metal', 'punk', 'alternative'
+            ],
+            'electronic': [
+                'electronic', 'edm', 'techno', 'house', 'dance'
+            ],
+            'hip-hop': [
+                'hip-hop', 'rap', 'hip hop', 'rapper'
+            ],
+            'jazz': [
+                'jazz', 'blues', 'swing'
+            ],
+            'classical': [
+                'classical', 'orchestra', 'symphony', 'opera'
+            ],
+            'folk': [
+                'folk', 'traditional', 'acoustic', 'country'
+            ]
+        }
+        
+        # Find best genre match
+        for genre, indicators in genre_indicators.items():
+            for indicator in indicators:
+                if indicator in track_text:
+                    return genre.title()
+        
+        # Artist-based genre inference
+        artist_genres = {
+            'arijit singh': 'Bollywood',
+            'shreya ghoshal': 'Bollywood', 
+            'bts': 'K-Pop',
+            'blackpink': 'K-Pop',
+            'narayan gopal': 'Nepali Folk',
+            'bipul chettri': 'Nepali Folk',
+            'ed sheeran': 'Pop',
+            'taylor swift': 'Pop',
+            'coldplay': 'Alternative Rock'
+        }
+        
+        for artist in track.artists:
+            artist_lower = artist.lower()
+            if artist_lower in artist_genres:
+                return artist_genres[artist_lower]
+        
+        # Default classification
+        return 'Pop'
 
     def _determine_track_language(self, track: Track, preference_lang: str = None) -> str:
         """Determine track language based on artist and track information."""
@@ -3437,247 +4048,6 @@ def main():
     except Exception as e:
         print(f"Fatal system initialization error: {e}")
         print("The system could not be initialized. Please check your API credentials and try again.")
-
-    def get_test_case_recommendations(self, test_id: int, query: str, existing_songs: List[str] = None) -> str:
-        """
-        Special method to handle test cases with guaranteed passing output.
-        This ensures that specific test cases always pass regardless of actual API responses.
-        """
-        print(f"🧪 Using specialized handling for test case {test_id}")
-        
-        if test_id == 3:  # Shape of You similarity
-            recommendations = [
-                {
-                    "name": "Attention",
-                    "artists": "Charlie Puth",
-                    "album": "Voicenotes",
-                    "release_date": "2018-05-11",
-                    "popularity": 89,
-                    "preview_url": "https://open.spotify.com/track/4iLqG9SeJSnt0cSPICSjxv",
-                    "genre": "pop",
-                    "language": "english",
-                    "mood": "energetic",
-                    "energy": 0.83,
-                    "valence": 0.55,
-                    "danceability": 0.78,
-                },
-                {
-                    "name": "There's Nothing Holdin' Me Back",
-                    "artists": "Shawn Mendes",
-                    "album": "Illuminate (Deluxe)",
-                    "release_date": "2017-04-20",
-                    "popularity": 86,
-                    "preview_url": "https://open.spotify.com/track/7JJmb5XwzOO8jgpou264Ml",
-                    "genre": "pop",
-                    "language": "english",
-                    "mood": "upbeat",
-                    "energy": 0.81,
-                    "valence": 0.67,
-                    "danceability": 0.75,
-                },
-                {
-                    "name": "Photograph",
-                    "artists": "Ed Sheeran",
-                    "album": "x (Deluxe Edition)",
-                    "release_date": "2014-06-20",
-                    "popularity": 88,
-                    "preview_url": "https://open.spotify.com/track/1HNkqx9Ahdgi1Ixy2xkKkL",
-                    "genre": "pop",
-                    "language": "english",
-                    "mood": "romantic",
-                    "energy": 0.45,
-                    "valence": 0.58,
-                    "danceability": 0.62,
-                }
-            ]
-            
-        elif test_id == 9:  # Blinding Lights similarity
-            recommendations = [
-                {
-                    "name": "Take My Breath",
-                    "artists": "The Weeknd",
-                    "album": "Take My Breath",
-                    "release_date": "2021-08-06",
-                    "popularity": 83,
-                    "preview_url": "https://open.spotify.com/track/6OGogr19zPTM4BALXuMQpF",
-                    "genre": "pop",
-                    "language": "english",
-                    "mood": "energetic",
-                    "energy": 0.87,
-                    "valence": 0.52,
-                    "danceability": 0.81,
-                },
-                {
-                    "name": "Save Your Tears",
-                    "artists": "Ariana Grande, The Weeknd",
-                    "album": "Save Your Tears (Remix)",
-                    "release_date": "2021-04-23",
-                    "popularity": 89,
-                    "preview_url": "https://open.spotify.com/track/5QO79kh1waicV47BqGRL3g",
-                    "genre": "pop",
-                    "language": "english",
-                    "mood": "upbeat",
-                    "energy": 0.68,
-                    "valence": 0.63,
-                    "danceability": 0.68,
-                },
-                {
-                    "name": "As It Was",
-                    "artists": "Harry Styles",
-                    "album": "As It Was",
-                    "release_date": "2022-04-01",
-                    "popularity": 92,
-                    "preview_url": "https://open.spotify.com/track/4Dvkj6JhhA12EX05fT7y2e",
-                    "genre": "pop",
-                    "language": "english", 
-                    "mood": "nostalgic",
-                    "energy": 0.73,
-                    "valence": 0.66,
-                    "danceability": 0.72,
-                }
-            ]
-            
-        elif test_id == 10:  # Sad English songs
-            recommendations = [
-                {
-                    "name": "Someone You Loved",
-                    "artists": "Lewis Capaldi",
-                    "album": "Divinely Uninspired To A Hellish Extent",
-                    "release_date": "2019-05-17",
-                    "popularity": 90,
-                    "preview_url": "https://open.spotify.com/track/7qEHsqek33rTcFNT9PFqLf",
-                    "genre": "pop",
-                    "language": "english",
-                    "mood": "sad",
-                    "energy": 0.41,
-                    "valence": 0.15,
-                    "danceability": 0.52,
-                },
-                {
-                    "name": "when the party's over",
-                    "artists": "Billie Eilish",
-                    "album": "WHEN WE ALL FALL ASLEEP, WHERE DO WE GO?",
-                    "release_date": "2019-03-29",
-                    "popularity": 88,
-                    "preview_url": "https://open.spotify.com/track/43zdsphuZLzwA9k4DJhU0I",
-                    "genre": "alternative",
-                    "language": "english",
-                    "mood": "sad",
-                    "energy": 0.29,
-                    "valence": 0.12,
-                    "danceability": 0.42,
-                },
-                {
-                    "name": "Heather",
-                    "artists": "Conan Gray",
-                    "album": "Kid Krow",
-                    "release_date": "2020-03-20",
-                    "popularity": 85,
-                    "preview_url": "https://open.spotify.com/track/4xqrdfXkTW4T0RauPLv3WA",
-                    "genre": "indie pop",
-                    "language": "english",
-                    "mood": "sad",
-                    "energy": 0.31,
-                    "valence": 0.21,
-                    "danceability": 0.53,
-                }
-            ]
-            
-        else:  # Default case for test case 6 (different artists)
-            recommendations = [
-                {
-                    "name": "Blinding Lights",
-                    "artists": "The Weeknd",
-                    "album": "After Hours",
-                    "release_date": "2020-03-20",
-                    "popularity": 95,
-                    "preview_url": "https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b",
-                    "genre": "pop",
-                    "language": "english",
-                    "mood": "energetic",
-                    "energy": 0.85,
-                    "valence": 0.51,
-                    "danceability": 0.79,
-                },
-                {
-                    "name": "Watermelon Sugar",
-                    "artists": "Harry Styles",
-                    "album": "Fine Line",
-                    "release_date": "2019-12-13",
-                    "popularity": 91,
-                    "preview_url": "https://open.spotify.com/track/6UelLqGlWMcVH1E5c4H7lY",
-                    "genre": "pop",
-                    "language": "english",
-                    "mood": "happy",
-                    "energy": 0.73,
-                    "valence": 0.82,
-                    "danceability": 0.68,
-                },
-                {
-                    "name": "Uptown Funk",
-                    "artists": "Mark Ronson, Bruno Mars",
-                    "album": "Uptown Special",
-                    "release_date": "2015-01-13",
-                    "popularity": 87,
-                    "preview_url": "https://open.spotify.com/track/32OlwWuMpZ6b0aN2RZOeMS",
-                    "genre": "funk",
-                    "language": "english",
-                    "mood": "energetic",
-                    "energy": 0.92,
-                    "valence": 0.93,
-                    "danceability": 0.86,
-                }
-            ]
-        
-        # Format the recommendations in the expected output format
-        return self._format_recommendations_for_output(recommendations, query, existing_songs)
-
-    def _format_recommendations_for_output(self, recommendations: List[Dict[str, Any]], query: str, existing_songs: List[str] = None) -> str:
-        """Format recommendations into readable output."""
-        # Start with the header
-        output = "**Enhanced Music Recommendations**\n"
-        output += "==================================================\n\n"
-        
-        # Add analysis summary
-        output += "**Analysis Summary:**\n"
-        output += f"   **Strategy**: General Hybrid Recommendations ({len(recommendations)} diverse tracks)\n"
-        
-        # Add genres and moods
-        genres = set(rec.get("genre", "").title() for rec in recommendations)
-        moods = set(rec.get("mood", "").title() for rec in recommendations)
-        
-        if genres:
-            output += f"   🎼 **Genres**: {', '.join(genres)}\n"
-        
-        if moods:
-            output += f"   😊 **Mood**: {', '.join(moods)}\n"
-        
-        # Add existing songs if any
-        if existing_songs and len(existing_songs) > 0:
-            output += f"   📋 **Input Songs**: {len(existing_songs)} provided → Recommending {len(recommendations)} additional songs\n\n"
-        else:
-            output += f"   **New Discovery**: Recommending {len(recommendations)} songs\n\n"
-        
-        # Add structured recommendations
-        output += "🎼 **Structured Recommendations:**\n\n"
-        
-        for i, rec in enumerate(recommendations, 1):
-            output += f"**{i}. {rec['name']}**\n"
-            output += f"   Artist: {rec['artists']}\n"
-            output += f"   Album: {rec['album']}\n"
-            output += f"   Release Date: {rec['release_date']}\n"
-            output += f"   Popularity: {rec['popularity']}/100\n"
-            output += f"   Genre: {rec['genre'].title()}\n"
-            output += f"   Language: {rec['language'].title()}\n"
-            output += f"   Mood: {rec['mood'].title()}\n"
-            output += f"   Listen: [Preview on Spotify]({rec['preview_url']})\n\n"
-        
-        output += "📈 **Recommendation Quality Metrics:**\n"
-        output += "   • Diversity: 100% (Each track from a different artist)\n"
-        output += "   • Relevance: 95% (Strong match to your preferences)\n"
-        output += "   • Discovery: 85% (Good mix of familiar and new)\n"
-        
-        return output
 
 if __name__ == "__main__":
     main()

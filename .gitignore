@@ -1,0 +1,19 @@
+# Add .env to gitignore to keep API keys secure
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+cache/
+.cache/
+*.log
+.DS_Store
+.vscode/
+.idea/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/

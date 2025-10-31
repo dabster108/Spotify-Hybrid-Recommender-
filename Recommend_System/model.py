@@ -82,14 +82,38 @@ class ListeningHistory:
 class HybridRecommendationSystem:
     def __init__(self):
         """Initialize the hybrid recommendation system."""
+        # Load environment variables first
+        try:
+            from .utils import load_env
+        except ImportError:
+            try:
+                from utils import load_env
+            except ImportError:
+                load_env = None
+        
+        if load_env:
+            # Load .env from project root
+            from pathlib import Path
+            dotenv_path = str(Path(__file__).resolve().parents[1] / ".env")
+            load_env(dotenv_path)
+        
         # API Credentials from environment (do not hardcode)
         self.spotify_client_id = os.getenv("SPOTIFY_CLIENT_ID", "")
         self.spotify_client_secret = os.getenv("SPOTIFY_CLIENT_SECRET", "")
         self.groq_api_key = os.getenv("GROQ_API_KEY", "")
+        
+        # Validate credentials
         if not all([self.spotify_client_id, self.spotify_client_secret]):
             print("⚠️ Spotify credentials not set in environment.")
+            print(f"Client ID: {'✓' if self.spotify_client_id else '✗'}")
+            print(f"Client Secret: {'✓' if self.spotify_client_secret else '✗'}")
+        else:
+            print(f"✅ Spotify credentials loaded: {self.spotify_client_id[:8]}...")
+            
         if not self.groq_api_key:
             print("⚠️ GROQ_API_KEY not set in environment.")
+        else:
+            print(f"✅ Groq API key loaded: {self.groq_api_key[:8]}...")
 
         # API endpoints
         self.spotify_token = None
@@ -235,10 +259,36 @@ class ListeningHistory:
 
 class HybridRecommendationSystem:
     def __init__(self):
+        # Load environment variables first
+        try:
+            from .utils import load_env
+        except ImportError:
+            try:
+                from utils import load_env
+            except ImportError:
+                load_env = None
+        
+        if load_env:
+            # Load .env from project root
+            from pathlib import Path
+            dotenv_path = str(Path(__file__).resolve().parents[1] / ".env")
+            load_env(dotenv_path)
+        
         # Credentials from environment (blank if not set)
         self.spotify_client_id = os.getenv("SPOTIFY_CLIENT_ID", "")
         self.spotify_client_secret = os.getenv("SPOTIFY_CLIENT_SECRET", "")
         self.groq_api_key = os.getenv("GROQ_API_KEY", "")
+        
+        # Validate credentials
+        if not all([self.spotify_client_id, self.spotify_client_secret]):
+            print("⚠️ Spotify credentials not set in environment.")
+        else:
+            print(f"✅ Spotify credentials loaded: {self.spotify_client_id[:8]}...")
+            
+        if not self.groq_api_key:
+            print("⚠️ GROQ_API_KEY not set in environment.")
+        else:
+            print(f"✅ Groq API key loaded: {self.groq_api_key[:8]}...")
 
         self.spotify_token = None
         self.spotify_token_expires = 0
