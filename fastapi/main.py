@@ -244,12 +244,25 @@ def parse_hybrid_output(markdown_output: str, query: str) -> Dict:
     if mood_match:
         result["mood"] = mood_match.group(1).strip()
     
-    # Extract recommendations
-    # Pattern to match each recommendation block
-    rec_pattern = r'\*\*(\d+)\.\s*([^\n]+)\*\*\s*\n\s*🎤\s*\*\*Artist\*\*:\s*([^\n]+)\s*\n\s*🎸\s*\*\*Genre\*\*:\s*([^\n]+)\s*\n\s*🌍\s*\*\*Language\*\*:\s*([^\n]+)\s*\n\s*💿\s*\*\*Album\*\*:\s*([^\n]+)\s*\n\s*📈\s*\*\*Popularity\*\*:\s*[^(]*\((\d+)/100[^\)]*\)\s*\n\s*⏱️\s*\*\*Duration\*\*:\s*([^\n]+)\s*\n\s*🔗\s*\*\*Listen\*\*:\s*\[(?:Spotify|Preview on Spotify)\]\(([^\)]+)\)'
+    # Extract recommendations - Updated pattern for new markdown format
+    # Pattern to match the new format:
+    # ⭐ **1. SONG NAME** 🤝
+    #    🎤 **Artist**: Artist Name
+    #    🎸 **Genre**: Genre
+    #    🌍 **Language**: Language
+    #    💿 **Album**: Album Name
+    #    📈 **Popularity**: ●●○○○ (50/100 - Well-Known)
+    #    ⏱️ **Duration**: 4:18
+    #    🔗 **Listen**: [Spotify](URL)
+    
+    rec_pattern = r'⭐\s*\*\*(\d+)\.\s*([^\*]+)\*\*[^\n]*\n\s*🎤\s*\*\*Artist\*\*:\s*([^\n]+)\n\s*🎸\s*\*\*Genre\*\*:\s*([^\n]+)\n\s*🌍\s*\*\*Language\*\*:\s*([^\n]+)\n\s*💿\s*\*\*Album\*\*:\s*([^\n]+)\n\s*📈\s*\*\*Popularity\*\*:[^(]*\((\d+)/100[^\)]*\)\n\s*⏱️\s*\*\*Duration\*\*:\s*([^\n]+)\n\s*🔗\s*\*\*Listen\*\*:\s*\[Spotify\]\(([^\)]+)\)'
     
     matches = re.finditer(rec_pattern, markdown_output)
     
+    print(f"=== DEBUG: Looking for recommendations with NEW pattern ===")
+    print(f"Found {len(list(re.finditer(rec_pattern, markdown_output)))} matches")
+    
+    matches = re.finditer(rec_pattern, markdown_output)  # Re-create iterator
     for match in matches:
         track = {
             "name": match.group(2).strip(),
@@ -358,6 +371,11 @@ async def get_hybrid_recommendations(request: HybridRecommendationRequest):
             query=query,
             existing_songs=existing_songs if existing_songs else None
         )
+        
+        # Debug: Print the actual markdown result
+        print("=== DEBUG: MARKDOWN RESULT ===")
+        print(markdown_result)
+        print("=== END DEBUG ===")
         
         # Parse the markdown output into structured JSON
         parsed_result = parse_hybrid_output(markdown_result, query)
