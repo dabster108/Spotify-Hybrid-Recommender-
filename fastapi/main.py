@@ -245,8 +245,8 @@ def parse_hybrid_output(markdown_output: str, query: str) -> Dict:
         result["mood"] = mood_match.group(1).strip()
     
     # Extract recommendations - Updated pattern for new markdown format
-    # Pattern to match the new format:
-    # ⭐ **1. SONG NAME** 🤝
+    # Pattern to match the new format with different emoji prefixes:
+    # 🏆 **1. SONG NAME** or ⭐ **1. SONG NAME** or ✨ **1. SONG NAME**
     #    🎤 **Artist**: Artist Name
     #    🎸 **Genre**: Genre
     #    🌍 **Language**: Language
@@ -255,7 +255,7 @@ def parse_hybrid_output(markdown_output: str, query: str) -> Dict:
     #    ⏱️ **Duration**: 4:18
     #    🔗 **Listen**: [Spotify](URL)
     
-    rec_pattern = r'⭐\s*\*\*(\d+)\.\s*([^\*]+)\*\*[^\n]*\n\s*🎤\s*\*\*Artist\*\*:\s*([^\n]+)\n\s*🎸\s*\*\*Genre\*\*:\s*([^\n]+)\n\s*🌍\s*\*\*Language\*\*:\s*([^\n]+)\n\s*💿\s*\*\*Album\*\*:\s*([^\n]+)\n\s*📈\s*\*\*Popularity\*\*:[^(]*\((\d+)/100[^\)]*\)\n\s*⏱️\s*\*\*Duration\*\*:\s*([^\n]+)\n\s*🔗\s*\*\*Listen\*\*:\s*\[Spotify\]\(([^\)]+)\)'
+    rec_pattern = r'[🏆⭐✨]\s*\*\*(\d+)\.\s*([^\*]+)\*\*[^\n]*\n\s*🎤\s*\*\*Artist\*\*:\s*([^\n]+)\n\s*🎸\s*\*\*Genre\*\*:\s*([^\n]+)\n\s*🌍\s*\*\*Language\*\*:\s*([^\n]+)\n\s*💿\s*\*\*Album\*\*:\s*([^\n]+)\n\s*📈\s*\*\*Popularity\*\*:[^(]*\((\d+)/100[^\)]*\)\n\s*⏱️\s*\*\*Duration\*\*:\s*([^\n]+)\n\s*🔗\s*\*\*Listen\*\*:\s*\[Spotify\]\(([^\)]+)\)'
     
     matches = re.finditer(rec_pattern, markdown_output)
     
@@ -367,9 +367,14 @@ async def get_hybrid_recommendations(request: HybridRecommendationRequest):
             )
         
         # Get hybrid recommendations (markdown format)
+        # Force the system to always request at least 3 recommendations
+        if not request.existing_songs:
+            request.existing_songs = []
+        
         markdown_result = hybrid_system.get_hybrid_recommendations(
             query=query,
-            existing_songs=existing_songs if existing_songs else None
+            existing_songs=request.existing_songs if request.existing_songs else None,
+            requested_count=3  # Force 3 recommendations always
         )
         
         # Debug: Print the actual markdown result
@@ -379,6 +384,47 @@ async def get_hybrid_recommendations(request: HybridRecommendationRequest):
         
         # Parse the markdown output into structured JSON
         parsed_result = parse_hybrid_output(markdown_result, query)
+        
+        # ENSURE WE ALWAYS HAVE EXACTLY 3 RECOMMENDATIONS
+        if len(parsed_result["recommendations"]) < 3:
+            print(f"⚠️ Only got {len(parsed_result['recommendations'])} recommendations, trying again with relaxed constraints...")
+            
+            # Try again with a more generic query to ensure we get 3 songs
+            fallback_query = "popular music songs"
+            markdown_result_fallback = hybrid_system.get_hybrid_recommendations(
+                query=fallback_query,
+                existing_songs=None,
+                requested_count=3
+            )
+            
+            # Parse fallback result
+            fallback_parsed = parse_hybrid_output(markdown_result_fallback, fallback_query)
+            
+            # Fill in missing recommendations from fallback
+            while len(parsed_result["recommendations"]) < 3 and len(fallback_parsed["recommendations"]) > 0:
+                parsed_result["recommendations"].append(fallback_parsed["recommendations"].pop(0))
+            
+            # Update count
+            parsed_result["count"] = len(parsed_result["recommendations"])
+            
+            print(f"✅ Now have {parsed_result['count']} recommendations")
+        
+        # Final safety check - if still not 3, create placeholder recommendations
+        while len(parsed_result["recommendations"]) < 3:
+            placeholder = {
+                "name": f"Placeholder Song {len(parsed_result['recommendations']) + 1}",
+                "artists": "Various Artists",
+                "album": "Popular Music",
+                "genre": "Pop",
+                "language": "English",
+                "popularity": 50,
+                "duration": "3:30",
+                "preview_url": None,
+                "external_url": "https://open.spotify.com"
+            }
+            parsed_result["recommendations"].append(placeholder)
+            
+        parsed_result["count"] = len(parsed_result["recommendations"])
         
         return HybridRecommendationResponse(**parsed_result)
         
