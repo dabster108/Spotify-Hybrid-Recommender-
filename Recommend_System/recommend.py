@@ -1156,7 +1156,10 @@ Only return valid JSON, no explanations."""
                 elif context in ['romantic', 'date', 'love']:
                     context_queries.extend([
                         'romantic songs collection', 'love music playlist',
-                        'date night music', 'romantic hits'
+                        'date night music', 'romantic hits',
+                        'romantic ballads', 'love songs slow',
+                        'romantic evening music', 'intimate songs',
+                        'romantic acoustic', 'love duets'
                     ])
                 elif context in ['morning', 'breakfast', 'wake up']:
                     context_queries.extend([
@@ -1199,10 +1202,22 @@ Only return valid JSON, no explanations."""
             
             # MOOD-SPECIFIC SEARCHES
             for mood in moods[:3]:
-                search_queries.extend([
-                    f'{mood} music playlist',
-                    f'{mood} songs collection'
-                ])
+                if mood.lower() in ['romantic', 'love']:
+                    search_queries.extend([
+                        f'{mood} music playlist',
+                        f'{mood} songs collection',
+                        f'{mood} ballads slow',
+                        f'{mood} acoustic songs',
+                        f'{mood} evening music',
+                        'slow love songs',
+                        'romantic hits',
+                        'love ballads'
+                    ])
+                else:
+                    search_queries.extend([
+                        f'{mood} music playlist',
+                        f'{mood} songs collection'
+                    ])
         
         print(f"🔍 Enhanced search: {len(search_queries)} intelligent queries")
         if preferences.language_preference and not specific_artist:
@@ -2086,7 +2101,7 @@ Only return valid JSON, no explanations."""
         
         # Determine recommendation count based on request
         if requested_count:
-            max_recommendations = requested_count
+            max_recommendations = max(requested_count, 3)  # Ensure minimum of 3
         elif existing_songs:
             max_recommendations = 3
         else:
@@ -2173,7 +2188,15 @@ Only return valid JSON, no explanations."""
                 # Only allow duplicate artists if we have fewer than minimum recommendations
                 # Use the requested count or at least 3 as the minimum threshold
                 min_recommendations = max(requested_count or 3, 3)
-                if not artist_already_used or len(final_recommendations) < min_recommendations:
+                
+                # Be more lenient with diversity if we don't have enough recommendations yet
+                if len(final_recommendations) < min_recommendations:
+                    # Always add if we need more recommendations to reach minimum
+                    final_recommendations.append(track)
+                    seen_artists.add(primary_artist)
+                    seen_artist_variants.add(normalized_artist)
+                elif not artist_already_used:
+                    # Only enforce diversity after we have minimum recommendations
                     final_recommendations.append(track)
                     seen_artists.add(primary_artist)
                     seen_artist_variants.add(normalized_artist)
@@ -2183,6 +2206,20 @@ Only return valid JSON, no explanations."""
             
             print(f"Final selection: {len(final_recommendations)} tracks with {len(seen_artists)} unique artists")
         
+        # SAFETY CHECK: Ensure we always have at least 3 recommendations
+        if len(final_recommendations) < 3:
+            print(f"⚠️ Only {len(final_recommendations)} tracks found, adding more from available candidates...")
+            # Add more tracks from sorted_tracks if available, ignoring diversity constraints
+            for track_id, score in sorted_tracks:
+                if len(final_recommendations) >= 3:
+                    break
+                track = track_objects[track_id]
+                # Check if this track is not already in final_recommendations
+                if track not in final_recommendations:
+                    final_recommendations.append(track)
+                    print(f"   Added: {track.name} by {track.artists[0] if track.artists else 'Unknown'}")
+        
+        print(f"✅ Returning {len(final_recommendations)} final recommendations")
         return final_recommendations
 
     def _similarity_score(self, str1: str, str2: str) -> float:
